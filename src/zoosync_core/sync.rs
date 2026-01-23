@@ -1,0 +1,130 @@
+#[cfg(target_os = "linux")]
+use libc::{
+    EOWNERDEAD, PTHREAD_MUTEX_ROBUST, pthread_mutex_consistent, pthread_mutexattr_setrobust,
+};
+
+use libc::{
+    EBUSY, PTHREAD_PROCESS_SHARED, pthread_mutex_init, pthread_mutex_lock, pthread_mutex_t,
+    pthread_mutex_trylock, pthread_mutex_unlock, pthread_mutexattr_destroy, pthread_mutexattr_init,
+    pthread_mutexattr_setpshared, pthread_mutexattr_t,
+};
+use std::cell::UnsafeCell;
+use std::mem::MaybeUninit;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum MutexError {
+    #[error("Pthread error: {0}")]
+    Pthread(i32),
+    #[error("Lock recovered from dead owner")]
+    #[allow(dead_code)]
+    Recovered,
+    #[error("Lock is busy")]
+    Busy,
+}
+
+pub struct RobustMutex {
+    inner: UnsafeCell<pthread_mutex_t>,
+}
+
+unsafe impl Send for RobustMutex {}
+unsafe impl Sync for RobustMutex {}
+
+impl RobustMutex {
+    /// Initialize a robust mutex at the given memory location.
+    /// # Safety
+    /// The memory pointed to by `ptr` must be valid and large enough for `pthread_mutex_t`.
+    pub unsafe fn initialize_at(ptr: *mut u8) -> Result<&'static Self, MutexError> {
+        let mutex_ptr = ptr as *mut pthread_mutex_t;
+        let mut attr = MaybeUninit::<pthread_mutexattr_t>::uninit();
+
+        let ret = unsafe { pthread_mutexattr_init(attr.as_mut_ptr()) };
+        if ret != 0 {
+            return Err(MutexError::Pthread(ret));
+        }
+        let mut attr = unsafe { attr.assume_init() };
+
+        // Process Shared
+        let ret = unsafe { pthread_mutexattr_setpshared(&mut attr, PTHREAD_PROCESS_SHARED) };
+        if ret != 0 {
+            unsafe { pthread_mutexattr_destroy(&mut attr) };
+            return Err(MutexError::Pthread(ret));
+        }
+
+        // Robust (Linux Only)
+        #[cfg(target_os = "linux")]
+        {
+            let ret = unsafe { pthread_mutexattr_setrobust(&mut attr, PTHREAD_MUTEX_ROBUST) };
+            if ret != 0 {
+                unsafe { pthread_mutexattr_destroy(&mut attr) };
+                return Err(MutexError::Pthread(ret));
+            }
+        }
+
+        let ret = unsafe { pthread_mutex_init(mutex_ptr, &attr) };
+        unsafe { pthread_mutexattr_destroy(&mut attr) };
+
+        if ret != 0 {
+            return Err(MutexError::Pthread(ret));
+        }
+
+        // Cast to our wrapper wrapper.
+        // Note: This relies on RobustMutex being repr(transparent) or standard layout compatible
+        // if it wraps UnsafeCell<pthread_mutex_t>, which is the only member.
+        // For safety, let's just interpret the pointer as a reference to our struct.
+        unsafe { Ok(&*(ptr as *const RobustMutex)) }
+    }
+
+    /// Get reference to existing mutex
+    pub unsafe fn from_ptr(ptr: *mut u8) -> &'static Self {
+        unsafe { &*(ptr as *const RobustMutex) }
+    }
+
+    pub fn lock(&self) -> Result<(), MutexError> {
+        let ret = unsafe { pthread_mutex_lock(self.inner.get()) };
+        if ret == 0 {
+            return Ok(());
+        }
+
+        #[cfg(target_os = "linux")]
+        if ret == EOWNERDEAD {
+            // We acquired the lock, but the previous owner died.
+            // We must mark it consistent.
+            unsafe {
+                pthread_mutex_consistent(self.inner.get());
+            }
+            return Err(MutexError::Recovered);
+        }
+
+        Err(MutexError::Pthread(ret))
+    }
+
+    pub fn try_lock(&self) -> Result<(), MutexError> {
+        let ret = unsafe { pthread_mutex_trylock(self.inner.get()) };
+        if ret == 0 {
+            return Ok(());
+        }
+        if ret == EBUSY {
+            return Err(MutexError::Busy);
+        }
+
+        #[cfg(target_os = "linux")]
+        if ret == EOWNERDEAD {
+            unsafe {
+                pthread_mutex_consistent(self.inner.get());
+            }
+            return Err(MutexError::Recovered);
+        }
+
+        Err(MutexError::Pthread(ret))
+    }
+
+    pub fn unlock(&self) -> Result<(), MutexError> {
+        let ret = unsafe { pthread_mutex_unlock(self.inner.get()) };
+        if ret == 0 {
+            Ok(())
+        } else {
+            Err(MutexError::Pthread(ret))
+        }
+    }
+}
