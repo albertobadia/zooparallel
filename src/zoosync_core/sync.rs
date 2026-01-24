@@ -93,18 +93,16 @@ impl ShmCondVar {
             tv_nsec: timeout.subsec_nanos() as _,
         };
 
-        // Note: pthread_cond_timedwait usually takes absolute time.
-        // On macOS we might need to calculate absolute time.
         unsafe {
-            let mut now = libc::timeval {
+            let mut now = timespec {
                 tv_sec: 0,
-                tv_usec: 0,
+                tv_nsec: 0,
             };
-            libc::gettimeofday(&mut now, std::ptr::null_mut());
+            libc::clock_gettime(libc::CLOCK_REALTIME, &mut now);
 
             let mut abs_ts = timespec {
                 tv_sec: now.tv_sec + ts.tv_sec,
-                tv_nsec: (now.tv_usec * 1000) as libc::c_long + ts.tv_nsec,
+                tv_nsec: now.tv_nsec + ts.tv_nsec,
             };
 
             if abs_ts.tv_nsec >= 1_000_000_000 {
@@ -116,6 +114,13 @@ impl ShmCondVar {
             if ret == 0 {
                 Ok(true)
             } else if ret == libc::ETIMEDOUT {
+                Ok(false)
+            } else if ret == libc::EINVAL {
+                // FALLBACK: If time is invalid (e.g. slightly in the past), just do a tiny sleep
+                // release lock, sleep, re-lock
+                mutex.unlock()?;
+                std::thread::sleep(Duration::from_millis(10));
+                mutex.lock()?;
                 Ok(false)
             } else {
                 Err(CondError::Pthread(ret))

@@ -2,6 +2,7 @@ use pyo3::create_exception;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
+mod pool;
 mod queue;
 mod shm;
 mod sync;
@@ -155,6 +156,7 @@ impl ZooQueue {
 fn zoosync_core(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ZooLock>()?;
     m.add_class::<ZooQueue>()?;
+    m.add_class::<pool::ZooPoolCore>()?;
     m.add("LockRecovered", py.get_type::<LockRecovered>())?;
     Ok(())
 }
