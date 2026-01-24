@@ -171,7 +171,7 @@ impl ZooQueue {
             let ptr = pyo3::ffi::PyMemoryView_FromMemory(
                 ptr as *mut libc::c_char,
                 len as pyo3::ffi::Py_ssize_t,
-                pyo3::ffi::PyBUF_READ,
+                0x100,
             );
             if ptr.is_null() {
                 return Err(PyRuntimeError::new_err("Failed to create memoryview"));
