@@ -254,3 +254,43 @@ impl RobustMutex {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+
+    #[test]
+    fn test_lock_unlock() {
+        let mut buffer = vec![0u8; 128];
+        let mutex = unsafe { RobustMutex::initialize_at(buffer.as_mut_ptr()).unwrap() };
+
+        mutex.lock().expect("Lock failed");
+        mutex.unlock().expect("Unlock failed");
+    }
+
+    #[test]
+    fn test_thread_contention() {
+        let mut buffer = vec![0u8; 128];
+        let mutex = unsafe { RobustMutex::initialize_at(buffer.as_mut_ptr()).unwrap() };
+        let mutex_ptr = mutex as *const RobustMutex as usize;
+
+        let barrier = Arc::new(Barrier::new(2));
+        let b2 = barrier.clone();
+
+        let handle = thread::spawn(move || {
+            let m = unsafe { &*(mutex_ptr as *const RobustMutex) };
+            b2.wait(); // Wait for main thread to lock
+            m.lock().unwrap(); // Should block until main unlocks
+            m.unlock().unwrap();
+        });
+
+        mutex.lock().unwrap();
+        barrier.wait(); // Release thread
+        thread::sleep(Duration::from_millis(50)); // Hold it a bit
+        mutex.unlock().unwrap();
+
+        handle.join().unwrap();
+    }
+}

@@ -22,7 +22,7 @@ pub struct ShmSegment {
 
 impl ShmSegment {
     pub fn create(name: &str, size: usize) -> Result<Self, ShmError> {
-        Self::create_impl(name, size, false)
+        Self::create_impl(name, size, true)
     }
 
     pub fn create_mirrored(
@@ -211,3 +211,68 @@ impl Drop for ShmSegment {
 
 unsafe impl Send for ShmSegment {}
 unsafe impl Sync for ShmSegment {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    fn temp_name() -> String {
+        format!("/test_{}", &Uuid::new_v4().simple().to_string()[..8])
+    }
+
+    #[test]
+    fn test_create_and_open() {
+        let name = temp_name();
+        let size = 16384; // Use 16KB for safety on M1
+
+        {
+            let shm = ShmSegment::create(&name, size).expect("Failed to create shm");
+            assert_eq!(shm.size, size);
+            // Write something
+            unsafe {
+                std::ptr::write(shm.ptr.as_ptr() as *mut u64, 0xDEADBEEF);
+            }
+        } // Drop closes mapping, but shm stays
+
+        {
+            let shm = ShmSegment::open(&name, size).expect("Failed to open shm");
+            let val = unsafe { std::ptr::read(shm.ptr.as_ptr() as *mut u64) };
+            assert_eq!(val, 0xDEADBEEF);
+        }
+
+        ShmSegment::unlink(&name).expect("Failed to unlink");
+    }
+
+    #[test]
+    fn test_mirrored_mapping() {
+        let name = temp_name();
+        let header_size = 16384; // 16KB aligned
+        let data_size = 16384; // 16KB aligned
+
+        let shm = ShmSegment::create_mirrored(&name, header_size, data_size)
+            .expect("Failed to create mirrored shm");
+
+        let base = shm.ptr.as_ptr();
+
+        unsafe {
+            // Write to first data byte
+            let data_start = base.add(header_size);
+            *data_start = 42;
+
+            // Check its mirror
+            let mirror_start = base.add(header_size + data_size);
+            assert_eq!(
+                *mirror_start, 42,
+                "Mirror did not reflect write to original"
+            );
+
+            // Write to mirror
+            *mirror_start = 100;
+            // Check original
+            assert_eq!(*data_start, 100, "Original did not reflect write to mirror");
+        }
+
+        ShmSegment::unlink(&name).expect("Failed to unlink");
+    }
+}

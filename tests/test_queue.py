@@ -4,7 +4,12 @@ from zoosync import ZooQueue
 
 def test_queue_basic():
     # 1MB buffer
-    q = ZooQueue("test_basic_q", 1)
+    name = "test_basic_q"
+    try:
+        ZooQueue.unlink(name)
+    except Exception as e:
+        print(f"Failed to unlink queue: {e}")
+    q = ZooQueue(name, 1)
 
     data = b"hello world"
     q.put_bytes(data)
@@ -23,6 +28,11 @@ def producer(q_name, count):
 def test_queue_mp():
     q_name = "test_queue_mp"
     count = 1000
+
+    try:
+        ZooQueue.unlink(q_name)
+    except Exception as e:
+        print(f"Failed to unlink queue: {e}")
 
     # Initialize queue in parent
     q = ZooQueue(q_name, 1)

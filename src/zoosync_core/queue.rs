@@ -276,3 +276,73 @@ impl RingBuffer {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shm::ShmSegment;
+    use uuid::Uuid;
+
+    fn temp_q_name() -> String {
+        format!("/test_q_{}", &Uuid::new_v4().simple().to_string()[..8])
+    }
+
+    #[test]
+    fn test_ring_buffer_basic() {
+        let name = temp_q_name();
+        let header_size = 16384;
+        let data_size = 16384 * 2; // 32KB
+        let shm = ShmSegment::create_mirrored(&name, header_size, data_size).unwrap();
+
+        let buffer = unsafe { RingBuffer::initialize_at(shm.ptr.as_ptr(), shm.size).unwrap() };
+
+        let data = b"Hello, World!";
+        buffer.put_bytes(data).unwrap();
+
+        let out = buffer.get_bytes().unwrap();
+        assert_eq!(out, data);
+
+        ShmSegment::unlink(&name).unwrap();
+    }
+
+    #[test]
+    fn test_wrapping() {
+        let name = temp_q_name();
+        let header_size = 16384;
+        let data_size = 16384; // Must be page aligned (16KB on M1)
+        let shm = ShmSegment::create_mirrored(&name, header_size, data_size).unwrap();
+
+        let buffer = unsafe { RingBuffer::initialize_at(shm.ptr.as_ptr(), shm.size).unwrap() };
+
+        // Fill buffer almost full
+        // Capacity is 16384
+        // Write 4 chunks of 4000
+        let chunk = vec![1u8; 4000];
+        for _ in range(3) {
+            let _ = buffer.put_bytes(&chunk); // ~12000 + 12 = 12012 used
+        }
+
+        // Read some to make space at start
+        let _ = buffer.get_bytes().unwrap(); // -4004. used ~8000. Free ~8000.
+
+        // Write again
+        let chunk2 = vec![2u8; 6000];
+        buffer.put_bytes(&chunk2).unwrap(); // +6004. Total used ~14000. 
+        // This write should wrap.
+        // Write ptr was at ~12012. +6004 = 18016. > 16384. Wraps.
+
+        // Verify integrity
+        let _ = buffer.get_bytes().unwrap();
+        let _ = buffer.get_bytes().unwrap();
+
+        // This last one should be our wrapped data
+        let out = buffer.get_bytes().unwrap();
+        assert_eq!(out, chunk2);
+
+        ShmSegment::unlink(&name).unwrap();
+    }
+
+    fn range(n: usize) -> std::ops::Range<usize> {
+        0..n
+    }
+}

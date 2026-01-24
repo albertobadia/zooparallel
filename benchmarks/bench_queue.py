@@ -26,8 +26,8 @@ def consumer_zoo_zerocopy(name, count, size_mb):
     try:
         q = ZooQueue(name, size_mb)
         for _ in range(count):
-            view, info = q.recv_view()
-            q.commit_read(info)
+            with q.recv_view():
+                pass
     except Exception as e:
         print(f"Consumer error: {e}")
 

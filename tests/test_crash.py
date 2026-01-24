@@ -6,7 +6,12 @@ from zoosync import ZooLock, LockRecovered
 
 
 def test_basic_lock():
-    lock = ZooLock("test_basic_lock")
+    name = "test_basic_lock"
+    try:
+        ZooLock.unlink(name)
+    except Exception as e:
+        print(f"Failed to unlink lock: {e}")
+    lock = ZooLock(name)
     with lock:
         assert True
 
@@ -30,6 +35,10 @@ def test_crash_recovery():
         pytest.skip("Robust mutex crash recovery only supported on Linux")
 
     lock_name = "test_crash_recovery"
+    try:
+        ZooLock.unlink(lock_name)
+    except Exception as e:
+        print(f"Failed to unlink lock: {e}")
     lock = ZooLock(lock_name)
 
     # Spawn a process that acquires lock and dies
