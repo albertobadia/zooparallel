@@ -15,7 +15,7 @@ pub enum QueueError {
 
 pub const HEADER_SIZE: usize = 16384;
 
-#[repr(C, align(16384))]
+#[repr(C, align(4096))]
 struct RingBufferHeader {
     // 128 bytes for mutex
     _mutex_padding: [u8; 128],
