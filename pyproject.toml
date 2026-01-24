@@ -1,5 +1,5 @@
 [project]
-name = "zoosync"
+name = "zoosyncmp"
 dynamic = ["version"]
 description = "High-performance multiprocessing primitives for Python, written in Rust core."
 readme = "README.md"
