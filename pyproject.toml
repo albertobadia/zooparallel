@@ -1,6 +1,6 @@
 [project]
 name = "zoosync"
-version = "2026.1.24"
+dynamic = ["version"]
 description = "High-performance multiprocessing primitives for Python, written in Rust core."
 readme = "README.md"
 requires-python = ">=3.10"

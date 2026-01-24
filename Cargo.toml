@@ -1,6 +1,6 @@
 [package]
 name = "zoosync_core"
-version = "0.1.0"
+version = "2026.1.24"
 edition = "2024"
 
 [lib]
@@ -9,7 +9,7 @@ path = "src/zoosync_core/lib.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.23.4", features = ["extension-module"] }
+pyo3 = { version = "0.23.5", features = ["extension-module"] }
 nix = { version = "0.29.0", features = ["fs", "mman"] }
 libc = "0.2.169"
 thiserror = "2.0.11"

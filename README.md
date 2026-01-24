@@ -20,11 +20,19 @@ ZooSync provides robust, crash-safe, and zero-copy synchronization primitives ba
 
 ## 🚀 Usage Examples
 
-### Process Pool
+### Install
 
 ```bash
-pip install zoosync
+pip install zoosyncmp
 ```
+
+#### or with uv:
+
+```bash
+uv add zoosyncmp
+```
+
+### Process Pool
 
 ```python
 from zoosync import ZooPool
@@ -66,6 +74,15 @@ view, cursor = q.recv_view()
 q.commit_read(cursor)
 ```
 
+## 💡 When to use ZooSync?
+
+| ✅ Use ZooSync when... | ❌ Stick to `multiprocessing` when... |
+| :--- | :--- |
+| You need **high throughput** (GB/s) between processes. | You are sending small, infrequent messages. |
+| You are working with **large data** like Video Frames or Numpy Arrays. | You need to support **Windows**. |
+| You require **latency < 1ms** for IPC. | You prefer pure Python standard libraries without binary extensions. |
+| You need **crash-safety** (if a worker dies, the lock is released). | You need dynamic buffer resizing (ZooQueue is fixed-size). |
+
 ## 📚 Documentation
 
 ### Guides
@@ -90,6 +107,14 @@ Results from a MacBook Pro M1 8GB RAM (2020):
 *   [001: Hybrid Architecture](docs/adr/001-hybrid-architecture.md)
 *   [002: Robust Mutexes](docs/adr/002-robust-mutexes.md)
 *   [003: Shared Memory Ring Buffer](docs/adr/003-shm-ring-buffer.md)
+
+### Compatibility
+
+| OS | Lock | Queue | Pool |
+| :--- | :--- | :--- | :--- |
+| Linux | ✅ | ✅ | ✅ |
+| macOS | ✅ | ✅ | ✅ |
+| Windows | ❌ | ❌ | ❌ |
 
 ## License
 
