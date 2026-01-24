@@ -6,7 +6,8 @@ import uuid
 import time
 
 from concurrent.futures import Future
-from .zoosync_core import ZooPoolCore, ZooQueue
+from .zoosync_core import ZooPoolCore
+from .queue import ZooQueue
 
 
 class ZooPool:

@@ -23,7 +23,7 @@ def run_bench():
         list(executor.map(fast_task, range(10)))
 
         start = time.perf_counter()
-        results = list(executor.map(fast_task, range(num_tasks)))
+        list(executor.map(fast_task, range(num_tasks)))
         duration = time.perf_counter() - start
         print(
             f"ProcessPoolExecutor: {duration:.4f}s ({num_tasks / duration:.0f} tasks/s)"
@@ -35,7 +35,7 @@ def run_bench():
         pool.map(fast_task, range(10))
 
         start = time.perf_counter()
-        results = pool.map(fast_task, range(num_tasks))
+        pool.map(fast_task, range(num_tasks))
         duration = time.perf_counter() - start
         print(
             f"ZooPool:            {duration:.4f}s ({num_tasks / duration:.0f} tasks/s)"
@@ -48,7 +48,7 @@ def run_bench():
     # ProcessPoolExecutor
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         start = time.perf_counter()
-        results = list(executor.map(large_payload_task, [payload] * num_large))
+        list(executor.map(large_payload_task, [payload] * num_large))
         duration = time.perf_counter() - start
         print(
             f"ProcessPoolExecutor: {duration:.4f}s ({num_large / duration:.1f} tasks/s)"

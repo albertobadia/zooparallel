@@ -23,22 +23,23 @@ impl ZooPoolCore {
         let pool_id = Uuid::new_v4().simple().to_string()[..8].to_string();
         let task_q_name = format!("zp_task_{}", pool_id);
         let result_q_name = format!("zp_res_{}", pool_id);
-        let size_bytes = size_mb * 1024 * 1024;
+        let data_size = size_mb * 1024 * 1024;
+        let header_size = crate::queue::HEADER_SIZE;
 
-        let task_shm = ShmSegment::create(&task_q_name, size_bytes)
+        let task_shm = ShmSegment::create_mirrored(&task_q_name, header_size, data_size)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to create task shm: {}", e)))?;
 
-        let result_shm = ShmSegment::create(&result_q_name, size_bytes)
+        let result_shm = ShmSegment::create_mirrored(&result_q_name, header_size, data_size)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to create result shm: {}", e)))?;
 
         let task_buffer = unsafe {
-            RingBuffer::initialize_at(task_shm.ptr.as_ptr(), size_bytes).map_err(|e| {
+            RingBuffer::initialize_at(task_shm.ptr.as_ptr(), task_shm.size).map_err(|e| {
                 PyRuntimeError::new_err(format!("Failed to init task buffer: {}", e))
             })?
         };
 
         let result_buffer = unsafe {
-            RingBuffer::initialize_at(result_shm.ptr.as_ptr(), size_bytes).map_err(|e| {
+            RingBuffer::initialize_at(result_shm.ptr.as_ptr(), result_shm.size).map_err(|e| {
                 PyRuntimeError::new_err(format!("Failed to init result buffer: {}", e))
             })?
         };
@@ -50,7 +51,7 @@ impl ZooPoolCore {
             result_buffer,
             task_q_name,
             result_q_name,
-            size_bytes,
+            size_bytes: data_size,
         })
     }
 

@@ -13,7 +13,9 @@ pub enum QueueError {
     BufferTooSmall,
 }
 
-#[repr(C)]
+pub const HEADER_SIZE: usize = 16384;
+
+#[repr(C, align(16384))]
 struct RingBufferHeader {
     // 128 bytes for mutex
     _mutex_padding: [u8; 128],
@@ -26,6 +28,8 @@ struct RingBufferHeader {
     write_pos: AtomicU64,
     capacity: AtomicU64,
     init_done: AtomicU64,
+    // Ensure the struct itself is 16KB
+    _padding: [u8; 16384 - 128 * 3 - 8 * 4],
 }
 
 pub struct RingBuffer {
@@ -41,19 +45,15 @@ unsafe impl Sync for RingBuffer {}
 
 impl RingBuffer {
     /// Initialize a ring buffer in the given memory region.
-    /// Layout: [Header (Mutex + Conds + Metadata)] [Data Buffer ...]
-    pub unsafe fn initialize_at(ptr: *mut u8, size: usize) -> Result<Self, QueueError> {
-        let header_size = std::mem::size_of::<RingBufferHeader>();
-        if size <= header_size {
+    /// Layout: [Header (4KB)] [Data ...] [Data Mirror ...]
+    pub unsafe fn initialize_at(ptr: *mut u8, total_vm_size: usize) -> Result<Self, QueueError> {
+        if total_vm_size <= HEADER_SIZE {
             return Err(QueueError::BufferTooSmall);
         }
 
+        // Data size is (total_vm_size - HEADER_SIZE) / 2 because of double mapping
+        let data_size = (total_vm_size - HEADER_SIZE) / 2;
         let header = ptr as *mut RingBufferHeader;
-        let buffer_capacity = size - header_size;
-
-        // Initialize synchronization primitives in-place within the header padding
-        // Adjust offsets based on layout.
-        // We assume 64 bytes is enough for pthread_mutex_t and pthread_cond_t (usually 40 and 48 bytes on 64-bit)
 
         let mutex_ptr = ptr;
         let not_empty_ptr = unsafe { ptr.add(128) };
@@ -67,11 +67,11 @@ impl RingBuffer {
         unsafe {
             (*header).read_pos = AtomicU64::new(0);
             (*header).write_pos = AtomicU64::new(0);
-            (*header).capacity = AtomicU64::new(buffer_capacity as u64);
+            (*header).capacity = AtomicU64::new(data_size as u64);
             (*header).init_done = AtomicU64::new(1);
         }
 
-        let buffer = unsafe { ptr.add(header_size) };
+        let buffer = unsafe { ptr.add(HEADER_SIZE) };
 
         Ok(Self {
             mutex,
@@ -82,29 +82,24 @@ impl RingBuffer {
         })
     }
 
-    pub unsafe fn from_ptr(ptr: *mut u8, size: usize) -> Self {
-        let header_size = std::mem::size_of::<RingBufferHeader>();
-        let _buffer_capacity = size - header_size;
-
+    pub unsafe fn from_ptr(ptr: *mut u8, _total_vm_size: usize) -> Self {
         let header = ptr as *mut RingBufferHeader;
 
         let mutex = unsafe { RobustMutex::from_ptr(ptr) };
         let not_empty = unsafe { ShmCondVar::from_ptr(ptr.add(128)) };
         let not_full = unsafe { ShmCondVar::from_ptr(ptr.add(256)) };
 
-        // Wait for init_done (in case of race where opener starts before creator finishes)
+        // Wait for init_done
         while unsafe { (*header).init_done.load(Ordering::SeqCst) } == 0 {
             std::thread::yield_now();
         }
-
-        // Note: we trust capacity matches size-header_size, or we read from header if we want dynamic check
 
         Self {
             mutex,
             not_empty,
             not_full,
             header,
-            buffer: unsafe { ptr.add(header_size) },
+            buffer: unsafe { ptr.add(HEADER_SIZE) },
         }
     }
 
@@ -131,7 +126,6 @@ impl RingBuffer {
         loop {
             let write_pos = header.write_pos.load(Ordering::SeqCst);
             let read_pos = header.read_pos.load(Ordering::SeqCst);
-            // Capacity already loaded
             let used = write_pos - read_pos;
             let free = capacity - used;
 
@@ -139,7 +133,6 @@ impl RingBuffer {
                 break;
             }
 
-            // Wait for space with timeout to prevent infinite hang on macOS signal loss
             self.not_full
                 .wait_timeout(self.mutex, std::time::Duration::from_millis(100))?;
         }
@@ -200,6 +193,62 @@ impl RingBuffer {
         Ok(data)
     }
 
+    /// Optimized: contiguous view of data in shared memory (zero-copy)
+    /// Returns (pointer, length, total_advanced_index).
+    /// Advance index is used for commit_read later.
+    pub fn get_view(&self) -> Result<(*const u8, usize, u64), QueueError> {
+        self.lock()?;
+
+        let header = unsafe { &*self.header };
+        let capacity = header.capacity.load(Ordering::SeqCst);
+
+        loop {
+            let write_pos = header.write_pos.load(Ordering::SeqCst);
+            let read_pos = header.read_pos.load(Ordering::SeqCst);
+            if write_pos > read_pos {
+                break;
+            }
+            self.not_empty
+                .wait_timeout(self.mutex, std::time::Duration::from_millis(100))?;
+        }
+
+        let read_pos = header.read_pos.load(Ordering::SeqCst);
+
+        let mut rp = read_pos;
+        let mut len_bytes = [0u8; 4];
+        self.read_block_at(rp, capacity, &mut len_bytes);
+        let len = u32::from_le_bytes(len_bytes) as usize;
+        rp += 4;
+
+        // Because of mirroring, we can just return a pointer to the start of data.
+        // The data is guaranteed to be contiguous for up to 'capacity' bytes.
+        let offset = (rp % capacity) as usize;
+        let ptr = unsafe { self.buffer.add(offset) as *const u8 };
+
+        // We don't advance read_pos here, commit_read will do it.
+        // We return the new rp (including length advances) so user can commit.
+        Ok((ptr, len, rp + (len as u64)))
+    }
+
+    pub fn commit_read(&self, new_read_pos: u64) -> Result<(), QueueError> {
+        // We assume we still hold the lock if this is called immediately after get_view?
+        // Actually, for Python API, we might release the lock and then re-acquire it.
+        // If we release the lock, someone else might try to read.
+        // So Zero-Copy with PyMemoryView needs careful lock management.
+        // Let's assume for now the user calls commit_read which re-locks.
+
+        self.lock()?;
+        let header = unsafe { &*self.header };
+        header.read_pos.store(new_read_pos, Ordering::SeqCst);
+        self.not_full.notify_all()?;
+        self.mutex.unlock()?;
+        Ok(())
+    }
+
+    pub fn release_lock(&self) -> Result<(), QueueError> {
+        self.mutex.unlock().map_err(QueueError::from)
+    }
+
     // Internal helpers (must hold lock)
     fn write_block_at(&self, pos: u64, capacity: u64, src: &[u8]) {
         let len = src.len();
@@ -208,17 +257,10 @@ impl RingBuffer {
         }
 
         unsafe {
+            // Because of Mirroring, we always have at least 'capacity' bytes contiguous
+            // starting from any 'pos % capacity'.
             let offset = (pos % capacity) as usize;
-            let available = (capacity as usize) - offset;
-
-            if available >= len {
-                // Single contiguous copy
-                ptr::copy_nonoverlapping(src.as_ptr(), self.buffer.add(offset), len);
-            } else {
-                // Wrap around copy
-                ptr::copy_nonoverlapping(src.as_ptr(), self.buffer.add(offset), available);
-                ptr::copy_nonoverlapping(src.as_ptr().add(available), self.buffer, len - available);
-            }
+            ptr::copy_nonoverlapping(src.as_ptr(), self.buffer.add(offset), len);
         }
     }
 
@@ -230,20 +272,7 @@ impl RingBuffer {
 
         unsafe {
             let offset = (pos % capacity) as usize;
-            let available = (capacity as usize) - offset;
-
-            if available >= len {
-                // Single contiguous copy
-                ptr::copy_nonoverlapping(self.buffer.add(offset), dst.as_mut_ptr(), len);
-            } else {
-                // Wrap around copy
-                ptr::copy_nonoverlapping(self.buffer.add(offset), dst.as_mut_ptr(), available);
-                ptr::copy_nonoverlapping(
-                    self.buffer,
-                    dst.as_mut_ptr().add(available),
-                    len - available,
-                );
-            }
+            ptr::copy_nonoverlapping(self.buffer.add(offset), dst.as_mut_ptr(), len);
         }
     }
 }
