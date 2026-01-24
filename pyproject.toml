@@ -1,7 +1,7 @@
 [project]
 name = "zoosync"
-version = "0.1.0"
-description = "High performance multiprocessing primitives"
+version = "2026.1.24"
+description = "High-performance multiprocessing primitives for Python, written in Rust core."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
