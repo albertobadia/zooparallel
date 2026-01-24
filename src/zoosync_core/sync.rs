@@ -4,12 +4,16 @@ use libc::{
 };
 
 use libc::{
-    EBUSY, PTHREAD_PROCESS_SHARED, pthread_mutex_init, pthread_mutex_lock, pthread_mutex_t,
-    pthread_mutex_trylock, pthread_mutex_unlock, pthread_mutexattr_destroy, pthread_mutexattr_init,
-    pthread_mutexattr_setpshared, pthread_mutexattr_t,
+    EBUSY, PTHREAD_PROCESS_SHARED, pthread_cond_broadcast, pthread_cond_init, pthread_cond_signal,
+    pthread_cond_t, pthread_cond_timedwait, pthread_cond_wait, pthread_condattr_destroy,
+    pthread_condattr_init, pthread_condattr_setpshared, pthread_condattr_t, pthread_mutex_init,
+    pthread_mutex_lock, pthread_mutex_t, pthread_mutex_trylock, pthread_mutex_unlock,
+    pthread_mutexattr_destroy, pthread_mutexattr_init, pthread_mutexattr_setpshared,
+    pthread_mutexattr_t, timespec,
 };
 use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
+use std::time::Duration;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -17,14 +21,131 @@ pub enum MutexError {
     #[error("Pthread error: {0}")]
     Pthread(i32),
     #[error("Lock recovered from dead owner")]
-    #[allow(dead_code)]
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     Recovered,
     #[error("Lock is busy")]
     Busy,
 }
 
+#[derive(Error, Debug)]
+pub enum CondError {
+    #[error("Pthread error: {0}")]
+    Pthread(i32),
+    #[error("Mutex error: {0}")]
+    Mutex(#[from] MutexError),
+}
+
+#[repr(transparent)]
+pub struct ShmCondVar {
+    inner: UnsafeCell<pthread_cond_t>,
+}
+
+unsafe impl Send for ShmCondVar {}
+unsafe impl Sync for ShmCondVar {}
+
+impl ShmCondVar {
+    pub unsafe fn initialize_at(ptr: *mut u8) -> Result<&'static Self, CondError> {
+        let cond_ptr = ptr as *mut pthread_cond_t;
+        let mut attr = MaybeUninit::<pthread_condattr_t>::uninit();
+
+        let ret = unsafe { pthread_condattr_init(attr.as_mut_ptr()) };
+        if ret != 0 {
+            return Err(CondError::Pthread(ret));
+        }
+        let mut attr = unsafe { attr.assume_init() };
+
+        let ret = unsafe { pthread_condattr_setpshared(&mut attr, PTHREAD_PROCESS_SHARED) };
+        if ret != 0 {
+            unsafe { pthread_condattr_destroy(&mut attr) };
+            return Err(CondError::Pthread(ret));
+        }
+
+        let ret = unsafe { pthread_cond_init(cond_ptr, &attr) };
+        unsafe { pthread_condattr_destroy(&mut attr) };
+
+        if ret != 0 {
+            return Err(CondError::Pthread(ret));
+        }
+
+        unsafe { Ok(&*(ptr as *const ShmCondVar)) }
+    }
+
+    pub unsafe fn from_ptr(ptr: *mut u8) -> &'static Self {
+        unsafe { &*(ptr as *const ShmCondVar) }
+    }
+
+    #[allow(dead_code)]
+    pub fn wait(&self, mutex: &RobustMutex) -> Result<(), CondError> {
+        let ret = unsafe { pthread_cond_wait(self.inner.get(), mutex.inner.get()) };
+        if ret != 0 {
+            // If EOWNERDEAD happens during wait, we might need to be careful.
+            // But standard pthread_cond_wait re-acquires the mutex.
+            // If it returns successfully, we hold the mutex.
+            // If it returns an error, we might not.
+            return Err(CondError::Pthread(ret));
+        }
+        Ok(())
+    }
+
+    pub fn wait_timeout(&self, mutex: &RobustMutex, timeout: Duration) -> Result<bool, CondError> {
+        let ts = timespec {
+            tv_sec: timeout.as_secs() as _,
+            tv_nsec: timeout.subsec_nanos() as _,
+        };
+
+        // Note: pthread_cond_timedwait usually takes absolute time.
+        // On macOS we might need to calculate absolute time.
+        unsafe {
+            let mut now = libc::timeval {
+                tv_sec: 0,
+                tv_usec: 0,
+            };
+            libc::gettimeofday(&mut now, std::ptr::null_mut());
+
+            let mut abs_ts = timespec {
+                tv_sec: now.tv_sec + ts.tv_sec,
+                tv_nsec: (now.tv_usec * 1000) as libc::c_long + ts.tv_nsec,
+            };
+
+            if abs_ts.tv_nsec >= 1_000_000_000 {
+                abs_ts.tv_sec += 1;
+                abs_ts.tv_nsec -= 1_000_000_000;
+            }
+
+            let ret = pthread_cond_timedwait(self.inner.get(), mutex.inner.get(), &abs_ts);
+            if ret == 0 {
+                Ok(true)
+            } else if ret == libc::ETIMEDOUT {
+                Ok(false)
+            } else {
+                Err(CondError::Pthread(ret))
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn notify_one(&self) -> Result<(), CondError> {
+        let ret = unsafe { pthread_cond_signal(self.inner.get()) };
+        if ret != 0 {
+            Err(CondError::Pthread(ret))
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn notify_all(&self) -> Result<(), CondError> {
+        let ret = unsafe { pthread_cond_broadcast(self.inner.get()) };
+        if ret != 0 {
+            Err(CondError::Pthread(ret))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[repr(transparent)]
 pub struct RobustMutex {
-    inner: UnsafeCell<pthread_mutex_t>,
+    pub(crate) inner: UnsafeCell<pthread_mutex_t>,
 }
 
 unsafe impl Send for RobustMutex {}

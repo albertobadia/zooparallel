@@ -18,8 +18,6 @@ pub enum ShmError {
 pub struct ShmSegment {
     pub ptr: NonNull<u8>,
     pub size: usize,
-    #[allow(dead_code)]
-    pub name: String,
 }
 
 impl ShmSegment {
@@ -52,7 +50,6 @@ impl ShmSegment {
         Ok(Self {
             ptr: NonNull::new(ptr.as_ptr() as *mut u8).unwrap(),
             size,
-            name: name.to_string(),
         })
     }
 
@@ -83,7 +80,6 @@ impl ShmSegment {
         Ok(Self {
             ptr: NonNull::new(ptr.as_ptr() as *mut u8).unwrap(),
             size,
-            name: name.to_string(),
         })
     }
 

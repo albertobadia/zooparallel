@@ -1,3 +1,3 @@
-from .zoosync_core import ZooLock, LockRecovered
+from .zoosync_core import ZooLock, LockRecovered, ZooQueue
 
-__all__ = ["ZooLock", "LockRecovered"]
+__all__ = ["ZooLock", "LockRecovered", "ZooQueue"]

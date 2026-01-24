@@ -2,9 +2,11 @@ use pyo3::create_exception;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
+mod queue;
 mod shm;
 mod sync;
 
+use queue::RingBuffer;
 use shm::ShmSegment;
 use sync::{MutexError, RobustMutex};
 
@@ -12,8 +14,7 @@ create_exception!(zoosync_core, LockRecovered, PyRuntimeError);
 
 #[pyclass]
 struct ZooLock {
-    #[allow(dead_code)]
-    shm: ShmSegment, // Keep shm alive
+    _shm: ShmSegment,            // Keep shm alive
     mutex: &'static RobustMutex, // Reference into shm
 }
 
@@ -44,7 +45,7 @@ impl ZooLock {
         // Get reference
         let mutex = unsafe { RobustMutex::from_ptr(shm.ptr.as_ptr()) };
 
-        Ok(ZooLock { shm, mutex })
+        Ok(ZooLock { _shm: shm, mutex })
     }
 
     fn acquire(&self, py: Python) -> PyResult<()> {
@@ -94,11 +95,66 @@ impl ZooLock {
     ) -> PyResult<()> {
         self.release()
     }
+
+    #[staticmethod]
+    fn unlink(name: String) -> PyResult<()> {
+        ShmSegment::unlink(&name)
+            .map_err(|e| PyRuntimeError::new_err(format!("Unlink failed: {}", e)))
+    }
+}
+
+#[pyclass]
+struct ZooQueue {
+    _shm: ShmSegment,
+    buffer: RingBuffer,
+}
+
+#[pymethods]
+impl ZooQueue {
+    #[new]
+    fn new(name: String, size_mb: usize) -> PyResult<Self> {
+        let size_bytes = size_mb * 1024 * 1024;
+        let shm = match ShmSegment::open(&name, size_bytes) {
+            Ok(s) => s,
+            Err(_) => {
+                let s = ShmSegment::create(&name, size_bytes)
+                    .map_err(|e| PyRuntimeError::new_err(format!("Failed to create shm: {}", e)))?;
+                // Init
+                unsafe {
+                    RingBuffer::initialize_at(s.ptr.as_ptr(), size_bytes).map_err(|e| {
+                        PyRuntimeError::new_err(format!("Failed init buffer: {}", e))
+                    })?;
+                }
+                s
+            }
+        };
+
+        // Load existing
+        let buffer = unsafe { RingBuffer::from_ptr(shm.ptr.as_ptr(), size_bytes) };
+        Ok(ZooQueue { _shm: shm, buffer })
+    }
+
+    fn put_bytes(&self, py: Python, data: &[u8]) -> PyResult<()> {
+        py.allow_threads(|| self.buffer.put_bytes(data))
+            .map_err(|e| PyRuntimeError::new_err(format!("Queue put error: {}", e)))
+    }
+
+    fn get_bytes<'py>(&self, py: Python<'py>) -> PyResult<Vec<u8>> {
+        py.allow_threads(|| self.buffer.get_bytes())
+            .map_err(|e| PyRuntimeError::new_err(format!("Queue get error: {}", e)))
+    }
+
+    #[staticmethod]
+    fn unlink(name: String) -> PyResult<()> {
+        ShmSegment::unlink(&name)
+            .map_err(|e| PyRuntimeError::new_err(format!("Unlink failed: {}", e)))
+    }
 }
 
 #[pymodule]
 fn zoosync_core(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ZooLock>()?;
+    m.add_class::<ZooQueue>()?;
     m.add("LockRecovered", py.get_type::<LockRecovered>())?;
     Ok(())
 }
