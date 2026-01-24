@@ -1,0 +1,73 @@
+<svg width="800" height="500" viewBox="0 0 800 500" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .logo-text { font-family: 'Segoe UI', 'Roboto', sans-serif; font-weight: 800; letter-spacing: -1px; }
+    .slogan-text { font-family: 'Segoe UI', 'Roboto', sans-serif; font-weight: 500; text-transform: uppercase; letter-spacing: 2px; }
+  </style>
+
+  <defs>
+    <linearGradient id="sunsetSky" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FF5722" /> 
+      <stop offset="60%" stop-color="#FFC107" />
+      <stop offset="100%" stop-color="#FFF8E1" />
+    </linearGradient>
+
+    <!-- Honey Gold -->
+    <linearGradient id="honeyGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFB300" />
+      <stop offset="100%" stop-color="#FF6F00" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <circle cx="400" cy="200" r="160" fill="url(#sunsetSky)" opacity="0.9" />
+
+  <!-- Composition: Hex Grid (CENTERED at 200, matching background circle) -->
+  <g transform="translate(400, 200)">
+    
+    <!-- Hexagon Grid -->
+    <g stroke="#BF360C" stroke-width="3" fill="none">
+        <!-- Central Hex -->
+        <path d="M-25 -43 L25 -43 L50 0 L25 43 L-25 43 L-50 0 Z" fill="url(#honeyGold)" opacity="0.8" />
+        
+        <!-- Surrounding Hexes -->
+        <g transform="translate(0, -86)"> <path d="M-25 -43 L25 -43 L50 0 L25 43 L-25 43 L-50 0 Z" /> </g>
+        <g transform="translate(0, 86)"> <path d="M-25 -43 L25 -43 L50 0 L25 43 L-25 43 L-50 0 Z" /> </g>
+        <g transform="translate(75, -43)"> <path d="M-25 -43 L25 -43 L50 0 L25 43 L-25 43 L-50 0 Z" /> </g>
+        <g transform="translate(-75, -43)"> <path d="M-25 -43 L25 -43 L50 0 L25 43 L-25 43 L-50 0 Z" /> </g>
+        <g transform="translate(75, 43)"> <path d="M-25 -43 L25 -43 L50 0 L25 43 L-25 43 L-50 0 Z" /> </g>
+        <g transform="translate(-75, 43)"> <path d="M-25 -43 L25 -43 L50 0 L25 43 L-25 43 L-50 0 Z" /> </g>
+    </g>
+
+    <!-- Worker Bees -->
+    <g transform="translate(-90, -80) rotate(30)">
+        <ellipse cx="0" cy="0" rx="15" ry="25" fill="#3E2723" />
+        <path d="M-12 -5 Q0 0 12 -5" stroke="#FFC107" stroke-width="4" fill="none"/>
+        <path d="M-12 5 Q0 10 12 5" stroke="#FFC107" stroke-width="4" fill="none"/>
+        <path d="M5 -5 Q20 -20 5 -25 Q-10 -20 5 -5" fill="#FFF8E1" opacity="0.8" />
+        <path d="M-5 -5 Q-20 -20 -5 -25 Q10 -20 -5 -5" fill="#FFF8E1" opacity="0.8" />
+    </g>
+
+    <g transform="translate(90, 80) rotate(210)">
+        <ellipse cx="0" cy="0" rx="15" ry="25" fill="#3E2723" />
+        <path d="M-12 -5 Q0 0 12 -5" stroke="#FFC107" stroke-width="4" fill="none"/>
+        <path d="M-12 5 Q0 10 12 5" stroke="#FFC107" stroke-width="4" fill="none"/>
+        <path d="M5 -5 Q20 -20 5 -25 Q-10 -20 5 -5" fill="#FFF8E1" opacity="0.8" />
+        <path d="M-5 -5 Q-20 -20 -5 -25 Q10 -20 -5 -5" fill="#FFF8E1" opacity="0.8" />
+    </g>
+    
+     <g transform="translate(90, -80) rotate(-30)">
+        <ellipse cx="0" cy="0" rx="15" ry="25" fill="#3E2723" />
+        <path d="M-12 -5 Q0 0 12 -5" stroke="#FFC107" stroke-width="4" fill="none"/>
+        <path d="M-12 5 Q0 10 12 5" stroke="#FFC107" stroke-width="4" fill="none"/>
+        <path d="M5 -5 Q20 -20 5 -25 Q-10 -20 5 -5" fill="#FFF8E1" opacity="0.8" />
+        <path d="M-5 -5 Q-20 -20 -5 -25 Q10 -20 -5 -5" fill="#FFF8E1" opacity="0.8" />
+    </g>
+
+  </g>
+
+  <!-- Text -->
+  <g text-anchor="middle">
+    <text x="400" y="450" class="logo-text" font-size="85" fill="#FFD700" style="text-shadow: 0px 2px 4px rgba(0,0,0,0.5);">ZooSync</text>
+    <text x="400" y="485" class="slogan-text" font-size="20" fill="#E0E0E0">Robust Multiprocessing</text>
+  </g>
+</svg>
