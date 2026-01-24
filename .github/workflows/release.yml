@@ -28,7 +28,7 @@ jobs:
         uses: PyO3/maturin-action@v1.49.4
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist --find-interpreter
+          args: --release --out dist -i 3.10 3.11 3.12 3.13
           sccache: ${{ matrix.sccache }}
           manylinux: 2_28
           zig: true
@@ -57,7 +57,7 @@ jobs:
         uses: PyO3/maturin-action@v1.49.4
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist --find-interpreter
+          args: --release --out dist -i 3.10 3.11 3.12 3.13
           sccache: 'true'
           uv: true
       - name: Upload wheels
