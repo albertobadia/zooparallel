@@ -1,6 +1,6 @@
 import time
 import multiprocessing
-from zoosync import ZooQueue
+from zooparallel import ZooQueue
 
 # Payload sizes to test
 SIZES = [1024, 64 * 1024, 1024 * 1024]  # 1KB, 64KB, 1MB

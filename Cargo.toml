@@ -1,11 +1,11 @@
 [package]
-name = "zoosync_core"
+name = "zooparallel_core"
 version = "2026.1.24"
 edition = "2024"
 
 [lib]
-name = "zoosync_core"
-path = "src/zoosync_core/lib.rs"
+name = "zooparallel_core"
+path = "src/zooparallel_core/lib.rs"
 crate-type = ["cdylib"]
 
 [dependencies]

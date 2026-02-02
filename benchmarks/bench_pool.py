@@ -1,6 +1,6 @@
 import time
 from concurrent.futures import ProcessPoolExecutor
-from zoosync import ZooPool
+from zooparallel import ZooPool
 
 
 def fast_task(x):

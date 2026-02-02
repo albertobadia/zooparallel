@@ -2,7 +2,7 @@ import pytest
 import os
 import signal
 import multiprocessing
-from zoosync import ZooLock, LockRecovered
+from zooparallel import ZooLock, LockRecovered
 
 
 def test_basic_lock():

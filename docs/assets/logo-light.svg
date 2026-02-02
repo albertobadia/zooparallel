@@ -67,7 +67,7 @@
 
   <!-- Text -->
   <g text-anchor="middle">
-    <text x="400" y="450" class="logo-text" font-size="85" fill="#3E2723">ZooSync</text>
+    <text x="400" y="450" class="logo-text" font-size="70" fill="#3E2723">ZooParallel</text>
     <text x="400" y="485" class="slogan-text" font-size="20" fill="#4E342E">Robust Multiprocessing</text>
   </g>
 </svg>

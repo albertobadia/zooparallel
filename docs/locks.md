@@ -9,7 +9,7 @@
 ### 1. Crash Safety
 The most critical feature of `ZooLock` is **Robustness**.
 *   **Problem**: In standard `multiprocessing`, if a worker process is killed (`kill -9`) while it is inside a `with lock:` block, the lock remains held forever. All other processes waiting for it will hang indefinitely (Deadlock).
-*   **Solution**: `ZooLock` leverages `PTHREAD_MUTEX_ROBUST`. If the kernel detects the owner of a lock has died, the next waiter receives a special return code (`EOWNERDEAD`). ZooSync converts this into a successful acquisition but raises a `LockRecovered` warning/exception.
+*   **Solution**: `ZooLock` leverages `PTHREAD_MUTEX_ROBUST`. If the kernel detects the owner of a lock has died, the next waiter receives a special return code (`EOWNERDEAD`). ZooParallel converts this into a successful acquisition but raises a `LockRecovered` warning/exception.
 
 ### 2. Performance
 *   **Futex Implementation**: Unlike some file-lock based implementations, `ZooLock` uses Linux Futexes (Fast Userspace Mutexes).
@@ -19,7 +19,7 @@ The most critical feature of `ZooLock` is **Robustness**.
 ## Usage
 
 ```python
-from zoosync import ZooLock, LockRecovered
+from zooparallel import ZooLock, LockRecovered
 import time
 
 lock = ZooLock("my_db_lock")

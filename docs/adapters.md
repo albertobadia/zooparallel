@@ -1,6 +1,6 @@
 # Data Adapters
 
-ZooSync handles raw bytes (`ZooQueue`) or Shared Memory segments (`recv_view`). To use this efficiently with high-level data libraries, you need to "adapt" these bytes.
+ZooParallel handles raw bytes (`ZooQueue`) or Shared Memory segments (`recv_view`). To use this efficiently with high-level data libraries, you need to "adapt" these bytes.
 
 ## Numpy Adapter (Zero-Copy)
 
@@ -8,7 +8,7 @@ Numpy can wrap existing memory without copying it.
 
 ```python
 import numpy as np
-from zoosync import ZooQueue
+from zooparallel import ZooQueue
 
 q = ZooQueue("camera_feed", size_mb=100)
 
@@ -34,7 +34,7 @@ PyArrow handles zero-copy buffers natively.
 ```python
 import pyarrow as pa
 import pyarrow.ipc
-from zoosync import ZooQueue
+from zooparallel import ZooQueue
 
 q = ZooQueue("arrow_stream", size_mb=200)
 
@@ -56,7 +56,7 @@ For structured data, Protobuf is fast, though it typically requires parsing (cop
 
 ```python
 from my_proto_pb2 import MyMessage
-from zoosync import ZooQueue
+from zooparallel import ZooQueue
 
 q = ZooQueue("proto_q", size_mb=10)
 

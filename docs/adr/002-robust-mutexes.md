@@ -10,7 +10,7 @@ In a multiprocessing environment, if a process crashes (SIGKILL, Segfault) while
 We use `PTHREAD_MUTEX_ROBUST` (available in POSIX/Linux).
 *   When a process holding a robust mutex dies, the OS tracks this.
 *   The next process attempting to lock it receives `EOWNERDEAD`.
-*   ZooSync catches this error, calls `pthread_mutex_consistent()`, and successfully acquires the lock, raising a `LockRecovered` exception (or warning) to the application.
+*   ZooParallel catches this error, calls `pthread_mutex_consistent()`, and successfully acquires the lock, raising a `LockRecovered` exception (or warning) to the application.
 
 ## Consequences
 *   **Pros**:

@@ -219,7 +219,7 @@ wheels = [
 ]
 
 [[package]]
-name = "zoosync"
+name = "zooparallel"
 source = { editable = "." }
 dependencies = [
     { name = "psutil" },

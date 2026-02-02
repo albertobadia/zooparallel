@@ -331,7 +331,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7249219f66ced02969388cf2bb044a09756a083d0fab1e566056b04d9fbcaa5"
 
 [[package]]
-name = "zoosync_core"
+name = "zooparallel_core"
 version = "2026.1.24"
 dependencies = [
  "libc",

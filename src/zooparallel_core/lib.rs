@@ -11,7 +11,7 @@ use queue::RingBuffer;
 use shm::ShmSegment;
 use sync::{MutexError, RobustMutex};
 
-create_exception!(zoosync_core, LockRecovered, PyRuntimeError);
+create_exception!(zooparallel_core, LockRecovered, PyRuntimeError);
 
 #[pyclass]
 struct ZooLock {
@@ -201,7 +201,7 @@ impl ZooQueue {
 }
 
 #[pymodule]
-fn zoosync_core(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn zooparallel_core(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ZooLock>()?;
     m.add_class::<ZooQueue>()?;
     m.add_class::<pool::ZooPoolCore>()?;

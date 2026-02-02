@@ -1,5 +1,5 @@
 [project]
-name = "zoosyncmp"
+name = "zooparallel"
 dynamic = ["version"]
 description = "High-performance multiprocessing primitives for Python, written in Rust core."
 readme = "README.md"
@@ -14,7 +14,7 @@ build-backend = "maturin"
 
 [tool.maturin]
 python-source = "src"
-module-name = "zoosync.zoosync_core"
+module-name = "zooparallel.zooparallel_core"
 
 [dependency-groups]
 dev = [

@@ -1,6 +1,6 @@
 import time
 import multiprocessing
-from zoosync import ZooLock
+from zooparallel import ZooLock
 
 ITERATIONS = 100_000
 
@@ -31,10 +31,10 @@ def run_single_process():
     duration = bench_mplock(lock, ITERATIONS)
     print(f"MP Lock:  {duration:.4f}s  ({ITERATIONS / duration:.0f} ops/s)")
 
-    # ZooSync Lock
+    # ZooParallel Lock
     lock = ZooLock("bench_single")
     duration = bench_zoolock("bench_single", ITERATIONS)
-    print(f"ZooLock:  {duration:.4f}s  ({ITERATIONS / duration:.0f} ops/s)")
+    print(f"ZooParallel Lock:  {duration:.4f}s  ({ITERATIONS / duration:.0f} ops/s)")
 
 
 def worker_contention(lock_type, lock_arg, iterations):

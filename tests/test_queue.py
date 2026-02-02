@@ -1,5 +1,5 @@
 import multiprocessing
-from zoosync import ZooQueue
+from zooparallel import ZooQueue
 
 
 def test_queue_basic():

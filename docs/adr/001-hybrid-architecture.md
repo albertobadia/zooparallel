@@ -8,8 +8,8 @@ Python applications require high performance for certain tasks (like IPC) but fl
 
 ## Decision
 We chose a hybrid architecture:
-1.  **Rust (zoosync_core)**: Handles the "Control Plane". It implements lower-level synchronization logic, interacts with OS primitives (shm, futexes, robust mutexes), and manages memory safety.
-2.  **Python (zoosync)**: Handles the "User API". It wraps the Rust extension in pythonic classes (`ZooLock`, `ZooQueue`), manages process lifecycle (`ZooPool`), and handles serialization (pickle/rkyv).
+1.  **Rust (zooparallel_core)**: Handles the "Control Plane". It implements lower-level synchronization logic, interacts with OS primitives (shm, futexes, robust mutexes), and manages memory safety.
+2.  **Python (zooparallel)**: Handles the "User API". It wraps the Rust extension in pythonic classes (`ZooLock`, `ZooQueue`), manages process lifecycle (`ZooPool`), and handles serialization (pickle/rkyv).
 
 ## Consequences
 *   **Pros**:

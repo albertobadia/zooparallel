@@ -1,7 +1,7 @@
-# ZooSync User Guide
+# ZooParallel User Guide
 
 ## Introduction
-ZooSync provides a suite of tools to make Python multiprocessing faster, safer, and easier. This guide goes beyond the basics to help you build production-ready systems.
+ZooParallel provides a suite of tools to make Python multiprocessing faster, safer, and easier. This guide goes beyond the basics to help you build production-ready systems.
 
 ## 🛠️ Configuration & Tuning
 
@@ -22,7 +22,7 @@ ZooSync provides a suite of tools to make Python multiprocessing faster, safer, 
 Use `ZooLock` when workers are unstable or run risky C-extensions.
 
 ```python
-from zoosync import ZooLock, LockRecovered
+from zooparallel import ZooLock, LockRecovered
 
 lock = ZooLock("database_write_lock")
 
@@ -63,7 +63,7 @@ while True:
 ```
 
 ### 3. The "Fire Hose" (Batching)
-If sending millions of tiny items, even ZooSync has overhead. Batching is key.
+If sending millions of tiny items, even ZooParallel has overhead. Batching is key.
 
 ```python
 # Instead of:

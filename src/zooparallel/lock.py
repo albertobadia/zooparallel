@@ -1,4 +1,4 @@
-from .zoosync_core import ZooLock as ZooLockCore, LockRecovered
+from .zooparallel_core import ZooLock as ZooLockCore, LockRecovered
 
 
 class ZooLock:

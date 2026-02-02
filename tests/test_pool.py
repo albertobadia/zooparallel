@@ -1,4 +1,4 @@
-from zoosync import ZooPool
+from zooparallel import ZooPool
 import time
 
 

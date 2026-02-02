@@ -1,5 +1,5 @@
 import contextlib
-from .zoosync_core import ZooQueue as ZooQueueCore
+from .zooparallel_core import ZooQueue as ZooQueueCore
 
 
 class ZooQueue:
