@@ -60,6 +60,16 @@ impl ShmCondVar {
             return Err(CondError::Pthread(ret));
         }
 
+        // Use Monotonic Clock for timeouts if on Linux (Robust against invalid system time)
+        #[cfg(target_os = "linux")]
+        {
+            let ret = unsafe { libc::pthread_condattr_setclock(&mut attr, libc::CLOCK_MONOTONIC) };
+            if ret != 0 {
+                unsafe { pthread_condattr_destroy(&mut attr) };
+                return Err(CondError::Pthread(ret));
+            }
+        }
+
         let ret = unsafe { pthread_cond_init(cond_ptr, &attr) };
         unsafe { pthread_condattr_destroy(&mut attr) };
 
@@ -98,6 +108,11 @@ impl ShmCondVar {
                 tv_sec: 0,
                 tv_nsec: 0,
             };
+
+            #[cfg(target_os = "linux")]
+            libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut now);
+
+            #[cfg(not(target_os = "linux"))]
             libc::clock_gettime(libc::CLOCK_REALTIME, &mut now);
 
             let mut abs_ts = timespec {

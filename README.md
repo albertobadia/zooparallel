@@ -110,11 +110,14 @@ Results from a MacBook Pro M1 8GB RAM (2020):
 
 ### Compatibility
 
-| OS | Lock | Queue | Pool |
-| :--- | :--- | :--- | :--- |
-| Linux | ✅ | ✅ | ✅ |
-| macOS | ✅ | ✅ | ✅ |
-| Windows | ❌ | ❌ | ❌ |
+> [!WARNING]
+> **macOS**: Crash recovery (resiliency against dead processes) relies on Robust Mutexes, which are only supported on Linux. On macOS, if a worker process crashes while holding a lock, **the system will deadlock**. Use with caution in production on non-Linux platforms.
+
+| OS | Lock | Queue | Pool | Crash Recovery |
+| :--- | :--- | :--- | :--- | :--- |
+| Linux | ✅ | ✅ | ✅ | ✅ |
+| macOS | ✅ | ✅ | ✅ | ❌ |
+| Windows | ❌ | ❌ | ❌ | ❌ |
 
 ## License
 

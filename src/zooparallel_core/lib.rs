@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 /// A safe wrapper around a view of the queue memory.
 /// Holds a reference to the queue to prevent use-after-free.
-#[pyclass]
+#[pyclass(weakref)]
 struct ZooView {
     queue: Py<ZooQueue>,
     ptr: usize,
@@ -89,6 +89,20 @@ impl ZooView {
 
     unsafe fn __releasebuffer__(&self, _view: *mut pyo3::ffi::Py_buffer) {
         // No op
+    }
+
+    fn __traverse__(&self, visit: pyo3::gc::PyVisit<'_>) -> Result<(), pyo3::gc::PyTraverseError> {
+        visit.call(&self.queue)
+    }
+
+    fn __clear__(&mut self) {
+        // ... (comment)
+    }
+}
+
+impl Drop for ZooView {
+    fn drop(&mut self) {
+        // println!("ZooView dropped");
     }
 }
 
@@ -269,12 +283,22 @@ impl ZooQueue {
 fn zooparallel_core(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ZooLock>()?;
     m.add_class::<ZooQueue>()?;
-    m.add_class::<pool::ZooPoolCore>()?;
-    m.add_class::<ZooLock>()?;
-    m.add_class::<ZooQueue>()?;
-    m.add_class::<ZooView>()?;
+    m.add_class::<ZooView>()?; // Added locally for fix
     m.add_class::<pool::ZooPoolCore>()?;
     m.add("LockRecovered", py.get_type::<LockRecovered>())?;
     m.add("TimeoutError", py.get_type::<TimeoutError>())?;
+
+    if cfg!(not(target_os = "linux")) {
+        let warning_msg = "Running on non-Linux platform. Crash recovery (Robust Mutex) is NOT supported. Deadlocked processes may require manual cleanup.";
+        let warnings = py.import("warnings")?;
+        warnings.call_method1(
+            "warn",
+            (
+                warning_msg,
+                py.get_type::<pyo3::exceptions::PyUserWarning>(),
+            ),
+        )?;
+    }
+
     Ok(())
 }
