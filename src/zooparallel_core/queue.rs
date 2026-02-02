@@ -11,24 +11,24 @@ pub enum QueueError {
     Cond(#[from] CondError),
     #[error("Buffer too small")]
     BufferTooSmall,
+    #[error("Initialization timeout")]
+    InitTimeout,
+    #[error("Header corruption or size mismatch (expected {expected}, got {actual})")]
+    HeaderCorruption { expected: u64, actual: u64 },
 }
 
 pub const HEADER_SIZE: usize = 16384;
 
 #[repr(C, align(4096))]
 struct RingBufferHeader {
-    // 128 bytes for mutex
     _mutex_padding: [u8; 128],
-    // 128 bytes for not_empty cond
     _cond_not_empty_padding: [u8; 128],
-    // 128 bytes for not_full cond
     _cond_not_full_padding: [u8; 128],
 
     read_pos: AtomicU64,
     write_pos: AtomicU64,
     capacity: AtomicU64,
     init_done: AtomicU64,
-    // Ensure the struct itself is 16KB
     _padding: [u8; 16384 - 128 * 3 - 8 * 4],
 }
 
@@ -51,7 +51,6 @@ impl RingBuffer {
             return Err(QueueError::BufferTooSmall);
         }
 
-        // Data size is (total_vm_size - HEADER_SIZE) / 2 because of double mapping
         let data_size = (total_vm_size - HEADER_SIZE) / 2;
         let header = ptr as *mut RingBufferHeader;
 
@@ -63,7 +62,6 @@ impl RingBuffer {
         let not_empty = unsafe { ShmCondVar::initialize_at(not_empty_ptr)? };
         let not_full = unsafe { ShmCondVar::initialize_at(not_full_ptr)? };
 
-        // Initialize header fields
         unsafe {
             (*header).read_pos = AtomicU64::new(0);
             (*header).write_pos = AtomicU64::new(0);
@@ -82,14 +80,13 @@ impl RingBuffer {
         })
     }
 
-    pub unsafe fn from_ptr(ptr: *mut u8, total_vm_size: usize) -> Self {
+    pub unsafe fn from_ptr(ptr: *mut u8, total_vm_size: usize) -> Result<Self, QueueError> {
         let header = ptr as *mut RingBufferHeader;
 
         let mutex = unsafe { RobustMutex::from_ptr(ptr) };
         let not_empty = unsafe { ShmCondVar::from_ptr(ptr.add(128)) };
         let not_full = unsafe { ShmCondVar::from_ptr(ptr.add(256)) };
 
-        // Wait for init_done with timeout (10s)
         let start = std::time::Instant::now();
         let timeout = std::time::Duration::from_secs(10);
 
@@ -98,33 +95,31 @@ impl RingBuffer {
                 break;
             }
             if start.elapsed() > timeout {
-                panic!("Timeout waiting for RingBuffer initialization");
+                return Err(QueueError::InitTimeout);
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
-        // Validate capacity strictly against the provided memory size
         if total_vm_size > HEADER_SIZE {
             let expected_capacity = (total_vm_size - HEADER_SIZE) / 2;
             let actual_capacity = unsafe { (*header).capacity.load(Ordering::SeqCst) };
             if actual_capacity != expected_capacity as u64 {
-                panic!(
-                    "RingBuffer header corruption or size mismatch! Header says {}, expected {}",
-                    actual_capacity, expected_capacity
-                );
+                return Err(QueueError::HeaderCorruption {
+                    expected: expected_capacity as u64,
+                    actual: actual_capacity,
+                });
             }
         }
 
-        Self {
+        Ok(Self {
             mutex,
             not_empty,
             not_full,
             header,
             buffer: unsafe { ptr.add(HEADER_SIZE) },
-        }
+        })
     }
 
-    // Helper to wrap lock
     fn lock(&self) -> Result<(), QueueError> {
         loop {
             match self.mutex.lock() {
@@ -241,13 +236,9 @@ impl RingBuffer {
         let len = u32::from_le_bytes(len_bytes) as usize;
         rp += 4;
 
-        // Because of mirroring, we can just return a pointer to the start of data.
-        // The data is guaranteed to be contiguous for up to 'capacity' bytes.
         let offset = (rp % capacity) as usize;
         let ptr = unsafe { self.buffer.add(offset) as *const u8 };
 
-        // We don't advance read_pos here, commit_read will do it.
-        // We return the new rp (including length advances) so user can commit.
         Ok((ptr, len, rp + (len as u64)))
     }
 
@@ -264,24 +255,17 @@ impl RingBuffer {
         self.mutex.unlock().map_err(QueueError::from)
     }
 
-    // Internal helpers (must hold lock)
     fn write_block_at(&self, pos: u64, capacity: u64, src: &[u8]) -> Result<(), QueueError> {
         let len = src.len();
         if len == 0 {
             return Ok(());
         }
 
-        // Safety check: Ensure we don't write out of bounds.
-        // The data region size is guaranteed to be at least 2 * capacity by construction.
-        // We verify that the write fits within the allocated capacity.
-
         if len as u64 > capacity {
             return Err(QueueError::BufferTooSmall);
         }
 
         unsafe {
-            // Because of Mirroring, we always have at least 'capacity' bytes contiguous
-            // starting from any 'pos % capacity'.
             let offset = (pos % capacity) as usize;
             ptr::copy_nonoverlapping(src.as_ptr(), self.buffer.add(offset), len);
         }
@@ -343,28 +327,19 @@ mod tests {
 
         let buffer = unsafe { RingBuffer::initialize_at(shm.ptr.as_ptr(), shm.size).unwrap() };
 
-        // Fill buffer almost full
-        // Capacity is 16384
-        // Write 4 chunks of 4000
         let chunk = vec![1u8; 4000];
         for _ in range(3) {
-            let _ = buffer.put_bytes(&chunk); // ~12000 + 12 = 12012 used
+            let _ = buffer.put_bytes(&chunk);
         }
 
-        // Read some to make space at start
-        let _ = buffer.get_bytes().unwrap(); // -4004. used ~8000. Free ~8000.
+        let _ = buffer.get_bytes().unwrap();
 
-        // Write again
         let chunk2 = vec![2u8; 6000];
-        buffer.put_bytes(&chunk2).unwrap(); // +6004. Total used ~14000. 
-        // This write should wrap.
-        // Write ptr was at ~12012. +6004 = 18016. > 16384. Wraps.
+        buffer.put_bytes(&chunk2).unwrap();
 
-        // Verify integrity
         let _ = buffer.get_bytes().unwrap();
         let _ = buffer.get_bytes().unwrap();
 
-        // This last one should be our wrapped data
         let out = buffer.get_bytes().unwrap();
         assert_eq!(out, chunk2);
 
@@ -377,8 +352,6 @@ mod tests {
 
     #[test]
     fn test_header_layout() {
-        // Verify that the RingBufferHeader layout matches our manual offsets in initialize_at
-        // We rely on [u8; 128] arrays being contiguous and repr(C) order.
         let header = RingBufferHeader {
             _mutex_padding: [0; 128],
             _cond_not_empty_padding: [0; 128],
@@ -395,15 +368,10 @@ mod tests {
         let not_empty = &header._cond_not_empty_padding as *const _ as usize;
         let not_full = &header._cond_not_full_padding as *const _ as usize;
 
-        // Offsets used in initialize_at:
-        // mutex: 0
-        // not_empty: 128
-        // not_full: 256
         assert_eq!(mutex - base, 0, "Mutex offset mismatch");
         assert_eq!(not_empty - base, 128, "Not Empty cond offset mismatch");
         assert_eq!(not_full - base, 256, "Not Full cond offset mismatch");
 
-        // Verify total size corresponds to HEADER_SIZE
         assert_eq!(
             std::mem::size_of::<RingBufferHeader>(),
             HEADER_SIZE,

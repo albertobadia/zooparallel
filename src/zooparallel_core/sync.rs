@@ -20,6 +20,8 @@ use thiserror::Error;
 pub enum MutexError {
     #[error("Pthread error: {0}")]
     Pthread(i32),
+    /// Lock was recovered from a dead owner.
+    /// **IMPORTANT**: The lock IS held after this error. Caller must call `unlock()` when done.
     #[error("Lock recovered from dead owner")]
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     Recovered,
@@ -88,10 +90,6 @@ impl ShmCondVar {
     pub fn wait(&self, mutex: &RobustMutex) -> Result<(), CondError> {
         let ret = unsafe { pthread_cond_wait(self.inner.get(), mutex.inner.get()) };
         if ret != 0 {
-            // If EOWNERDEAD happens during wait, we might need to be careful.
-            // But standard pthread_cond_wait re-acquires the mutex.
-            // If it returns successfully, we hold the mutex.
-            // If it returns an error, we might not.
             return Err(CondError::Pthread(ret));
         }
         Ok(())
@@ -115,10 +113,9 @@ impl ShmCondVar {
             #[cfg(not(target_os = "linux"))]
             libc::clock_gettime(libc::CLOCK_REALTIME, &mut now);
 
-            let mut abs_ts = timespec {
-                tv_sec: now.tv_sec + ts.tv_sec,
-                tv_nsec: now.tv_nsec + ts.tv_nsec,
-            };
+            let mut abs_ts = now;
+            abs_ts.tv_sec += ts.tv_sec;
+            abs_ts.tv_nsec += ts.tv_nsec;
 
             if abs_ts.tv_nsec >= 1_000_000_000 {
                 abs_ts.tv_sec += 1;
@@ -131,11 +128,8 @@ impl ShmCondVar {
             } else if ret == libc::ETIMEDOUT {
                 Ok(false)
             } else if ret == libc::EINVAL {
-                // FALLBACK: If time is invalid (e.g. slightly in the past), just do a tiny sleep
-                // release lock, sleep, re-lock
-                mutex.unlock()?;
-                std::thread::sleep(Duration::from_millis(10));
-                mutex.lock()?;
+                // If the absolute time is in the past, some impls return EINVAL.
+                // We treat this as a timeout.
                 Ok(false)
             } else {
                 Err(CondError::Pthread(ret))
@@ -209,14 +203,9 @@ impl RobustMutex {
             return Err(MutexError::Pthread(ret));
         }
 
-        // Cast to our wrapper wrapper.
-        // Note: This relies on RobustMutex being repr(transparent) or standard layout compatible
-        // if it wraps UnsafeCell<pthread_mutex_t>, which is the only member.
-        // For safety, let's just interpret the pointer as a reference to our struct.
         unsafe { Ok(&*(ptr as *const RobustMutex)) }
     }
 
-    /// Get reference to existing mutex
     pub unsafe fn from_ptr(ptr: *mut u8) -> &'static Self {
         unsafe { &*(ptr as *const RobustMutex) }
     }
@@ -229,8 +218,6 @@ impl RobustMutex {
 
         #[cfg(target_os = "linux")]
         if ret == EOWNERDEAD {
-            // We acquired the lock, but the previous owner died.
-            // We must mark it consistent.
             unsafe {
                 pthread_mutex_consistent(self.inner.get());
             }
@@ -296,14 +283,14 @@ mod tests {
 
         let handle = thread::spawn(move || {
             let m = unsafe { &*(mutex_ptr as *const RobustMutex) };
-            b2.wait(); // Wait for main thread to lock
-            m.lock().unwrap(); // Should block until main unlocks
+            b2.wait();
+            m.lock().unwrap();
             m.unlock().unwrap();
         });
 
         mutex.lock().unwrap();
-        barrier.wait(); // Release thread
-        thread::sleep(Duration::from_millis(50)); // Hold it a bit
+        barrier.wait();
+        thread::sleep(Duration::from_millis(50));
         mutex.unlock().unwrap();
 
         handle.join().unwrap();

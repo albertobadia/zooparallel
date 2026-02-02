@@ -19,10 +19,10 @@ def test_worker_restart():
     with ZooPool(num_workers=1) as pool:
         # Submit task that kills the worker to trigger restart
         pool.submit(suicide)
-        
+
         # Wait for monitor (interval 1s)
         time.sleep(2.0)
-        
+
         # Verify worker restarted by submitting a new task
         f = pool.submit(identity, 42)
         assert f.result(timeout=5.0) == 42

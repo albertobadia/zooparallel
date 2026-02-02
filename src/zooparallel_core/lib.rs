@@ -87,17 +87,13 @@ impl ZooView {
         Ok(())
     }
 
-    unsafe fn __releasebuffer__(&self, _view: *mut pyo3::ffi::Py_buffer) {
-        // No op
-    }
+    unsafe fn __releasebuffer__(&self, _view: *mut pyo3::ffi::Py_buffer) {}
 
     fn __traverse__(&self, visit: pyo3::gc::PyVisit<'_>) -> Result<(), pyo3::gc::PyTraverseError> {
         visit.call(&self.queue)
     }
 
-    fn __clear__(&mut self) {
-        // ... (comment)
-    }
+    fn __clear__(&mut self) {}
 }
 
 impl Drop for ZooView {
@@ -106,8 +102,8 @@ impl Drop for ZooView {
 
 #[pyclass]
 struct ZooLock {
-    _shm: ShmSegment,            // Keep shm alive
-    mutex: &'static RobustMutex, // Reference into shm
+    _shm: ShmSegment,
+    mutex: &'static RobustMutex,
 }
 
 #[pymethods]
@@ -124,7 +120,7 @@ impl ZooLock {
 
                 unsafe {
                     RobustMutex::initialize_at(s.ptr.as_ptr()).map_err(|e| {
-                        PyRuntimeError::new_err(format!("Failed into init mutex: {}", e))
+                        PyRuntimeError::new_err(format!("Failed to init mutex: {}", e))
                     })?;
                 }
                 s
@@ -147,19 +143,7 @@ impl ZooLock {
             Err(e) => return Err(PyRuntimeError::new_err(format!("Lock failure: {}", e))),
         }
 
-        py.allow_threads(|| {
-            match self.mutex.lock() {
-                Ok(_) => Ok(()),
-                Err(MutexError::Recovered) => {
-                    // We need to signal this back.
-                    // Since allow_threads expects Send, and PyErr isn't always Send easily,
-                    // we return a specific status.
-                    Err(MutexError::Recovered)
-                }
-                Err(e) => Err(e),
-            }
-        })
-        .map_err(|e| match e {
+        py.allow_threads(|| self.mutex.lock()).map_err(|e| match e {
             MutexError::Recovered => LockRecovered::new_err("Lock recovered from dead process"),
             _ => PyRuntimeError::new_err(format!("Lock failure: {}", e)),
         })
@@ -211,7 +195,6 @@ impl ZooQueue {
                     ShmSegment::create_mirrored(&name, header_size, data_size).map_err(|e| {
                         PyRuntimeError::new_err(format!("Failed to create mirrored shm: {}", e))
                     })?;
-                // Init
                 unsafe {
                     RingBuffer::initialize_at(s.ptr.as_ptr(), s.size).map_err(|e| {
                         PyRuntimeError::new_err(format!("Failed init buffer: {}", e))
@@ -221,8 +204,10 @@ impl ZooQueue {
             }
         };
 
-        // Load existing
-        let buffer = unsafe { RingBuffer::from_ptr(shm.ptr.as_ptr(), shm.size) };
+        let buffer = unsafe {
+            RingBuffer::from_ptr(shm.ptr.as_ptr(), shm.size)
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to open buffer: {}", e)))?
+        };
         Ok(ZooQueue { _shm: shm, buffer })
     }
 
@@ -277,7 +262,7 @@ impl ZooQueue {
 fn zooparallel_core(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ZooLock>()?;
     m.add_class::<ZooQueue>()?;
-    m.add_class::<ZooView>()?; // Added locally for fix
+    m.add_class::<ZooView>()?;
     m.add_class::<pool::ZooPoolCore>()?;
     m.add("LockRecovered", py.get_type::<LockRecovered>())?;
     m.add("TimeoutError", py.get_type::<TimeoutError>())?;

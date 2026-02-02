@@ -5,15 +5,15 @@ use pyo3::prelude::*;
 use uuid::Uuid;
 
 #[pyclass]
-#[allow(dead_code)]
 pub struct ZooPoolCore {
-    task_shm: ShmSegment,
-    result_shm: ShmSegment,
+    _task_shm: ShmSegment,
+    _result_shm: ShmSegment,
     task_buffer: RingBuffer,
     result_buffer: RingBuffer,
+    #[pyo3(get)]
     pub task_q_name: String,
+    #[pyo3(get)]
     pub result_q_name: String,
-    size_bytes: usize,
 }
 
 #[pymethods]
@@ -45,24 +45,13 @@ impl ZooPoolCore {
         };
 
         Ok(Self {
-            task_shm,
-            result_shm,
+            _task_shm: task_shm,
+            _result_shm: result_shm,
             task_buffer,
             result_buffer,
             task_q_name,
             result_q_name,
-            size_bytes: data_size,
         })
-    }
-
-    #[getter]
-    fn get_task_q_name(&self) -> String {
-        self.task_q_name.clone()
-    }
-
-    #[getter]
-    fn get_result_q_name(&self) -> String {
-        self.result_q_name.clone()
     }
 
     pub fn put_task(&self, py: Python, data: &[u8]) -> PyResult<()> {
