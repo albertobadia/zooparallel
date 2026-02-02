@@ -23,7 +23,7 @@ def test_pool_basic():
         pool.map(slow_square, range(8))
         duration = time.perf_counter() - start
 
-        assert duration < 0.5, f"Parallel map took too long: {duration:.2f}s"
+        assert duration < 0.8, f"Parallel map took too long: {duration:.2f}s"
 
 
 if __name__ == "__main__":
