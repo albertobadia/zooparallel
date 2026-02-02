@@ -89,9 +89,18 @@ impl RingBuffer {
         let not_empty = unsafe { ShmCondVar::from_ptr(ptr.add(128)) };
         let not_full = unsafe { ShmCondVar::from_ptr(ptr.add(256)) };
 
-        // Wait for init_done
-        while unsafe { (*header).init_done.load(Ordering::SeqCst) } == 0 {
-            std::thread::yield_now();
+        // Wait for init_done with timeout (10s)
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_secs(10);
+
+        loop {
+            if unsafe { (*header).init_done.load(Ordering::SeqCst) } != 0 {
+                break;
+            }
+            if start.elapsed() > timeout {
+                panic!("Timeout waiting for RingBuffer initialization");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
         Self {
@@ -231,12 +240,6 @@ impl RingBuffer {
     }
 
     pub fn commit_read(&self, new_read_pos: u64) -> Result<(), QueueError> {
-        // We assume we still hold the lock if this is called immediately after get_view?
-        // Actually, for Python API, we might release the lock and then re-acquire it.
-        // If we release the lock, someone else might try to read.
-        // So Zero-Copy with PyMemoryView needs careful lock management.
-        // Let's assume for now the user calls commit_read which re-locks.
-
         self.lock()?;
         let header = unsafe { &*self.header };
         header.read_pos.store(new_read_pos, Ordering::SeqCst);

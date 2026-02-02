@@ -12,6 +12,85 @@ use shm::ShmSegment;
 use sync::{MutexError, RobustMutex};
 
 create_exception!(zooparallel_core, LockRecovered, PyRuntimeError);
+create_exception!(zooparallel_core, TimeoutError, PyRuntimeError);
+
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// A safe wrapper around a view of the queue memory.
+/// Holds a reference to the queue to prevent use-after-free.
+#[pyclass]
+struct ZooView {
+    queue: Py<ZooQueue>,
+    ptr: usize,
+    len: usize,
+    next_pos: u64,
+    committed: AtomicBool,
+}
+
+#[pymethods]
+impl ZooView {
+    fn __enter__<'py>(slf: Bound<'py, Self>, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let view = unsafe { pyo3::ffi::PyMemoryView_FromObject(slf.as_ptr()) };
+        if view.is_null() {
+            return Err(PyRuntimeError::new_err(
+                "Failed to create memoryview from ZooView",
+            ));
+        }
+        unsafe { Ok(Bound::from_owned_ptr(py, view)) }
+    }
+
+    fn __exit__(
+        &self,
+        py: Python,
+        _exc_type: PyObject,
+        _exc_value: PyObject,
+        _traceback: PyObject,
+    ) -> PyResult<()> {
+        if !self.committed.swap(true, Ordering::SeqCst) {
+            let queue = self.queue.borrow(py);
+            queue.commit_read(self.next_pos)?;
+        }
+        Ok(())
+    }
+
+    unsafe fn __getbuffer__(
+        &self,
+        view: *mut pyo3::ffi::Py_buffer,
+        flags: std::os::raw::c_int,
+    ) -> PyResult<()> {
+        if view.is_null() {
+            return Err(PyRuntimeError::new_err("View is null"));
+        }
+
+        unsafe {
+            let ptr = self.ptr as *mut std::ffi::c_void;
+
+            (*view).buf = ptr;
+            (*view).len = self.len as isize;
+            (*view).itemsize = 1;
+            (*view).readonly = 1;
+            (*view).ndim = 1;
+            (*view).format = std::ptr::null_mut();
+
+            let ret = pyo3::ffi::PyBuffer_FillInfo(
+                view,
+                std::ptr::null_mut(),
+                ptr,
+                self.len as isize,
+                1, // readonly
+                flags,
+            );
+            if ret != 0 {
+                return Err(PyRuntimeError::new_err("PyBuffer_FillInfo failed"));
+            }
+        }
+        Ok(())
+    }
+
+    unsafe fn __releasebuffer__(&self, _view: *mut pyo3::ffi::Py_buffer) {
+        // No op
+    }
+}
 
 #[pyclass]
 struct ZooLock {
@@ -149,42 +228,28 @@ impl ZooQueue {
             .map_err(|e| PyRuntimeError::new_err(format!("Queue get error: {}", e)))
     }
 
-    /// Zero-copy receive. Returns a PyMemoryView.
-    /// IMPORTANT: The user MUST call commit_read(view_info) after processing to advance the queue.
-    /// returns (memoryview, view_info)
-    fn recv_view<'py>(&self, py: Python<'py>) -> PyResult<(Bound<'py, PyAny>, u64)> {
-        // get_view acquires the lock and returns a raw pointer
-        let (ptr, len, next_pos) = self
+    /// Zero-copy receive. Returns a ZooView context manager.
+    /// Usage: with queue.recv_view() as view: ...
+    fn recv_view(self_: Py<ZooQueue>, py: Python) -> PyResult<ZooView> {
+        let queue = self_.borrow(py);
+
+        let (ptr, len, next_pos) = queue
             .buffer
             .get_view()
             .map_err(|e| PyRuntimeError::new_err(format!("Queue get_view error: {}", e)))?;
 
-        // Create memoryview
-        // SAFETY: The memory is valid as long as we hold the lock or don't advance read_pos.
-        // We currently HOLD the lock. We MUST release it after creating the view if we want
-        // the user to be able to use it without blocking others, but wait...
-        // If we release the lock, another process could write into this space?
-        // In a ring buffer, as long as read_pos doesn't move, writers can only write up to capacity.
-        // So the data is safe until read_pos moves.
-
-        let view = unsafe {
-            let ptr = pyo3::ffi::PyMemoryView_FromMemory(
-                ptr as *mut libc::c_char,
-                len as pyo3::ffi::Py_ssize_t,
-                0x100,
-            );
-            if ptr.is_null() {
-                return Err(PyRuntimeError::new_err("Failed to create memoryview"));
-            }
-            Bound::from_owned_ptr(py, ptr)
-        };
-
-        // Release lock so others can use the queue while Python processes the data
-        self.buffer
+        queue
+            .buffer
             .release_lock()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to release lock: {}", e)))?;
 
-        Ok((view.into_any(), next_pos))
+        Ok(ZooView {
+            queue: self_.clone_ref(py),
+            ptr: ptr as usize,
+            len,
+            next_pos,
+            committed: AtomicBool::new(false),
+        })
     }
 
     fn commit_read(&self, next_pos: u64) -> PyResult<()> {
@@ -205,6 +270,11 @@ fn zooparallel_core(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ZooLock>()?;
     m.add_class::<ZooQueue>()?;
     m.add_class::<pool::ZooPoolCore>()?;
+    m.add_class::<ZooLock>()?;
+    m.add_class::<ZooQueue>()?;
+    m.add_class::<ZooView>()?;
+    m.add_class::<pool::ZooPoolCore>()?;
     m.add("LockRecovered", py.get_type::<LockRecovered>())?;
+    m.add("TimeoutError", py.get_type::<TimeoutError>())?;
     Ok(())
 }

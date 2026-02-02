@@ -1,11 +1,8 @@
-import contextlib
 from .zooparallel_core import ZooQueue as ZooQueueCore
 
 
 class ZooQueue:
-    """
-    ZooQueue: A high-performance inter-process queue based on shared memory.
-    """
+    """High-performance inter-process queue based on shared memory."""
 
     def __init__(self, name: str, size_mb: int = 10):
         self._core = ZooQueueCore(name, size_mb)
@@ -18,23 +15,12 @@ class ZooQueue:
         """Get bytes from the queue. Blocks if empty."""
         return self._core.get_bytes()
 
-    @contextlib.contextmanager
     def recv_view(self):
         """
         Zero-copy context manager for receiving data.
-
-        Usage:
-            with queue.recv_view() as view:
-                # Use view (memoryview) directly
-                process(view)
-
-        The read is committed automatically when exiting the block.
+        Returns a memoryview that is valid only within the context.
         """
-        view, info = self._core.recv_view()
-        try:
-            yield view
-        finally:
-            self._core.commit_read(info)
+        return self._core.recv_view()
 
     @staticmethod
     def unlink(name: str):

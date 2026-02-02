@@ -1,4 +1,5 @@
 import multiprocessing
+import gc
 from zooparallel import ZooQueue
 
 
@@ -48,3 +49,33 @@ def test_queue_mp():
         received += 1
 
     p.join()
+
+
+def test_view_safety():
+    """
+    Test that holding a reference to the view keeps the underlying queue/shm alive,
+    even if the Python Queue object is deleted.
+    """
+    q_name = "test_view_safety"
+    try:
+        ZooQueue.unlink(q_name)
+    except Exception:
+        pass
+
+    q = ZooQueue(q_name, 1)
+    q.put_bytes(b"A" * 1024)
+
+    # Manually enter context to control lifecycle precisely
+    ctx = q.recv_view()
+    view = ctx.__enter__()
+
+    # Drop reference to queue and force GC
+    del q
+    gc.collect()
+
+    # Access view - should not segfault
+    try:
+        val = view[0]
+        assert val == 65  # 'A'
+    finally:
+        ctx.__exit__(None, None, None)
