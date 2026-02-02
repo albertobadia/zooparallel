@@ -11,8 +11,6 @@ permissions:
 jobs:
   linux:
     runs-on: ubuntu-latest
-    env:
-      PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
     strategy:
       matrix:
         include:
@@ -31,8 +29,6 @@ jobs:
           args: --release --out dist -i 3.10 3.11 3.12 3.13
           sccache: ${{ matrix.sccache }}
           manylinux: 2_28
-          zig: true
-          uv: true
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -41,8 +37,6 @@ jobs:
 
   macos:
     runs-on: macos-latest
-    env:
-      PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
     strategy:
       matrix:
         target: [x86_64, aarch64]
@@ -59,7 +53,6 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist -i 3.10 3.11 3.12 3.13
           sccache: 'true'
-          uv: true
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -75,7 +68,6 @@ jobs:
         with:
           command: sdist
           args: --out dist
-          uv: true
       - name: Upload sdist
         uses: actions/upload-artifact@v4
         with:

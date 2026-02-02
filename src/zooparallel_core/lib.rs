@@ -29,14 +29,11 @@ struct ZooView {
 
 #[pymethods]
 impl ZooView {
-    fn __enter__<'py>(slf: Bound<'py, Self>, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let view = unsafe { pyo3::ffi::PyMemoryView_FromObject(slf.as_ptr()) };
-        if view.is_null() {
-            return Err(PyRuntimeError::new_err(
-                "Failed to create memoryview from ZooView",
-            ));
-        }
-        unsafe { Ok(Bound::from_owned_ptr(py, view)) }
+    fn __enter__<'py>(slf: Bound<'py, Self>, _py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        // Create memoryview directly from self
+        slf.py()
+            .import("builtins")?
+            .call_method1("memoryview", (slf,))
     }
 
     fn __exit__(
@@ -65,13 +62,8 @@ impl ZooView {
         unsafe {
             let ptr = self.ptr as *mut std::ffi::c_void;
 
-            (*view).buf = ptr;
-            (*view).len = self.len as isize;
-            (*view).itemsize = 1;
-            (*view).readonly = 1;
-            (*view).ndim = 1;
-            (*view).format = std::ptr::null_mut();
-
+            // Fill buffer info manually
+            // Note: PyBuffer_FillInfo is safer than manual assignment for basic cases
             let ret = pyo3::ffi::PyBuffer_FillInfo(
                 view,
                 std::ptr::null_mut(),
@@ -80,6 +72,7 @@ impl ZooView {
                 1, // readonly
                 flags,
             );
+
             if ret != 0 {
                 return Err(PyRuntimeError::new_err("PyBuffer_FillInfo failed"));
             }
