@@ -3,7 +3,7 @@ from .zooparallel_core import ZooLock as ZooLockCore, LockRecovered
 
 class ZooLock:
     """
-    ZooLock: A high-performance inter-process mutex in shared memory.
+    High-performance inter-process mutex in shared memory.
     Supports robust recovery if a process dies while holding the lock.
     """
 

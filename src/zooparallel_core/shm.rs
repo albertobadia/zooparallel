@@ -13,6 +13,17 @@ pub enum ShmError {
     Nix(#[from] nix::Error),
     #[error("CString error: {0}")]
     CString(#[from] std::ffi::NulError),
+    #[error("Size must be page-aligned (got {0}, page size {1})")]
+    AlignmentError(usize, usize),
+}
+
+pub(crate) fn shm_path(name: &str) -> Result<CString, ShmError> {
+    let name_slash = if name.starts_with('/') {
+        name.to_string()
+    } else {
+        format!("/{}", name)
+    };
+    Ok(CString::new(name_slash)?)
 }
 
 pub struct ShmSegment {
@@ -46,12 +57,7 @@ impl ShmSegment {
     }
 
     fn create_impl(name: &str, size: usize, create: bool) -> Result<Self, ShmError> {
-        let name_slash = if name.starts_with('/') {
-            name.to_string()
-        } else {
-            format!("/{}", name)
-        };
-        let shm_name = CString::new(name_slash)?;
+        let shm_name = shm_path(name)?;
 
         let flags = if create {
             OFlag::O_CREAT | OFlag::O_RDWR | OFlag::O_EXCL
@@ -88,12 +94,15 @@ impl ShmSegment {
         data_size: usize,
         create: bool,
     ) -> Result<Self, ShmError> {
-        let name_slash = if name.starts_with('/') {
-            name.to_string()
-        } else {
-            format!("/{}", name)
-        };
-        let shm_name = CString::new(name_slash)?;
+        let page_size = unsafe { libc::sysconf(libc::_SC_PAGE_SIZE) } as usize;
+        if !header_size.is_multiple_of(page_size) {
+            return Err(ShmError::AlignmentError(header_size, page_size));
+        }
+        if !data_size.is_multiple_of(page_size) {
+            return Err(ShmError::AlignmentError(data_size, page_size));
+        }
+
+        let shm_name = shm_path(name)?;
 
         let flags = if create {
             OFlag::O_CREAT | OFlag::O_RDWR | OFlag::O_EXCL
@@ -117,7 +126,6 @@ impl ShmSegment {
         let total_vm_size = header_size + 2 * data_size;
 
         unsafe {
-            // Step 1: Reserve address space
             let reserved_ptr = libc::mmap(
                 std::ptr::null_mut(),
                 total_vm_size,
@@ -132,7 +140,6 @@ impl ShmSegment {
 
             let base = reserved_ptr as *mut u8;
 
-            // Step 2: Map Header
             let r2 = libc::mmap(
                 base as *mut libc::c_void,
                 header_size,
@@ -146,7 +153,6 @@ impl ShmSegment {
                 return Err(ShmError::Nix(nix::Error::last()));
             }
 
-            // Step 3: Map Data (first time)
             let r3 = libc::mmap(
                 base.add(header_size) as *mut libc::c_void,
                 data_size,
@@ -160,7 +166,6 @@ impl ShmSegment {
                 return Err(ShmError::Nix(nix::Error::last()));
             }
 
-            // Step 4: Map Data (second time - the mirror)
             let r4 = libc::mmap(
                 base.add(header_size + data_size) as *mut libc::c_void,
                 data_size,
@@ -183,12 +188,7 @@ impl ShmSegment {
 
     #[allow(dead_code)]
     pub fn unlink(name: &str) -> Result<(), ShmError> {
-        let name_slash = if name.starts_with('/') {
-            name.to_string()
-        } else {
-            format!("/{}", name)
-        };
-        let shm_name = CString::new(name_slash)?;
+        let shm_name = shm_path(name)?;
         shm_unlink(shm_name.as_c_str())?;
         Ok(())
     }
@@ -198,10 +198,6 @@ impl Drop for ShmSegment {
     fn drop(&mut self) {
         unsafe {
             let _ = munmap(
-                // SAFETY: We stored the pointer as NonNull, so we cast back.
-                // Note: This logic assumes mapped region started at self.ptr.
-                // In a real impl we might want to store the RawFd or be careful about Drop semantics if cloned.
-                // For now, this struct owns the mapping for this process.
                 NonNull::new(self.ptr.as_ptr() as *mut std::ffi::c_void).unwrap(),
                 self.size,
             );
@@ -229,7 +225,6 @@ mod tests {
         {
             let shm = ShmSegment::create(&name, size).expect("Failed to create shm");
             assert_eq!(shm.size, size);
-            // Write something
             unsafe {
                 std::ptr::write(shm.ptr.as_ptr() as *mut u64, 0xDEADBEEF);
             }
@@ -256,20 +251,16 @@ mod tests {
         let base = shm.ptr.as_ptr();
 
         unsafe {
-            // Write to first data byte
             let data_start = base.add(header_size);
             *data_start = 42;
 
-            // Check its mirror
             let mirror_start = base.add(header_size + data_size);
             assert_eq!(
                 *mirror_start, 42,
                 "Mirror did not reflect write to original"
             );
 
-            // Write to mirror
             *mirror_start = 100;
-            // Check original
             assert_eq!(*data_start, 100, "Original did not reflect write to mirror");
         }
 
