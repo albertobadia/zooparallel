@@ -82,7 +82,7 @@ impl RingBuffer {
         })
     }
 
-    pub unsafe fn from_ptr(ptr: *mut u8, _total_vm_size: usize) -> Self {
+    pub unsafe fn from_ptr(ptr: *mut u8, total_vm_size: usize) -> Self {
         let header = ptr as *mut RingBufferHeader;
 
         let mutex = unsafe { RobustMutex::from_ptr(ptr) };
@@ -101,6 +101,18 @@ impl RingBuffer {
                 panic!("Timeout waiting for RingBuffer initialization");
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        // Validate capacity strictly against the provided memory size
+        if total_vm_size > HEADER_SIZE {
+            let expected_capacity = (total_vm_size - HEADER_SIZE) / 2;
+            let actual_capacity = unsafe { (*header).capacity.load(Ordering::SeqCst) };
+            if actual_capacity != expected_capacity as u64 {
+                panic!(
+                    "RingBuffer header corruption or size mismatch! Header says {}, expected {}",
+                    actual_capacity, expected_capacity
+                );
+            }
         }
 
         Self {
@@ -259,31 +271,9 @@ impl RingBuffer {
             return Ok(());
         }
 
-        // Safety check: Ensure we don't write out of bounds of the actual mapped memory.
-        // We have header + 2 * capacity mapped.
-        // The mirroring trick relies on (offset + len) being accessible.
-        // offset is (pos % capacity). Max offset is capacity - 1.
-        // Max end is capacity - 1 + len.
-        // We must ensure this fits in our buffer slice.
-        // The 'buffer' pointer points to the start of the data region.
-        // The data region size is 2 * capacity (impl detail of initialize_at/from_ptr).
-        // However, `RingBuffer` struct doesn't explicitly store the TOTAL data size,
-        // but we know from `initialize_at` it is at least 2*capacity if it was created by us,
-        // or we rely on the contract.
-        //
-        // Wait, `from_ptr` takes `_total_vm_size` but discards it!
-        // We SHOULD store the safe limit to be robust against header corruption.
-        // For now, let's assume standard layout:
-        // offset = pos % capacity
-        // We need `offset + len <= 2 * capacity`.
-        // Since we only write at most `capacity` bytes (checked in put_bytes),
-        // and offset < capacity, then offset + len < 2 * capacity.
-        // So checking `len <= capacity` generally suffices for the mirroring logic,
-        // BUT if `capacity` in header is corrupted to be HUGE, we might segfault.
-        //
-        // NOTE: To be truly safe against corrupt header `capacity`, we need `safe_data_limit`
-        // stored in local process memory (not shared).
-        // For this iteration, we will just perform the basic sanity check on the pointer arithmetic.
+        // Safety check: Ensure we don't write out of bounds.
+        // The data region size is guaranteed to be at least 2 * capacity by construction.
+        // We verify that the write fits within the allocated capacity.
 
         if len as u64 > capacity {
             return Err(QueueError::BufferTooSmall);
@@ -383,5 +373,41 @@ mod tests {
 
     fn range(n: usize) -> std::ops::Range<usize> {
         0..n
+    }
+
+    #[test]
+    fn test_header_layout() {
+        // Verify that the RingBufferHeader layout matches our manual offsets in initialize_at
+        // We rely on [u8; 128] arrays being contiguous and repr(C) order.
+        let header = RingBufferHeader {
+            _mutex_padding: [0; 128],
+            _cond_not_empty_padding: [0; 128],
+            _cond_not_full_padding: [0; 128],
+            read_pos: AtomicU64::new(0),
+            write_pos: AtomicU64::new(0),
+            capacity: AtomicU64::new(0),
+            init_done: AtomicU64::new(0),
+            _padding: [0; 16384 - 128 * 3 - 8 * 4],
+        };
+
+        let base = &header as *const _ as usize;
+        let mutex = &header._mutex_padding as *const _ as usize;
+        let not_empty = &header._cond_not_empty_padding as *const _ as usize;
+        let not_full = &header._cond_not_full_padding as *const _ as usize;
+
+        // Offsets used in initialize_at:
+        // mutex: 0
+        // not_empty: 128
+        // not_full: 256
+        assert_eq!(mutex - base, 0, "Mutex offset mismatch");
+        assert_eq!(not_empty - base, 128, "Not Empty cond offset mismatch");
+        assert_eq!(not_full - base, 256, "Not Full cond offset mismatch");
+
+        // Verify total size corresponds to HEADER_SIZE
+        assert_eq!(
+            std::mem::size_of::<RingBufferHeader>(),
+            HEADER_SIZE,
+            "Header size mismatch"
+        );
     }
 }

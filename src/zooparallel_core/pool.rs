@@ -81,9 +81,3 @@ impl ZooPoolCore {
         Ok(())
     }
 }
-
-impl Drop for ZooPoolCore {
-    fn drop(&mut self) {
-        let _ = self.unlink();
-    }
-}

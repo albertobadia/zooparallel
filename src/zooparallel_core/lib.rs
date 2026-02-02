@@ -101,9 +101,7 @@ impl ZooView {
 }
 
 impl Drop for ZooView {
-    fn drop(&mut self) {
-        // println!("ZooView dropped");
-    }
+    fn drop(&mut self) {}
 }
 
 #[pyclass]
@@ -116,17 +114,14 @@ struct ZooLock {
 impl ZooLock {
     #[new]
     fn new(name: String) -> PyResult<Self> {
-        // Size of pthread_mutex_t is 64 bytes on 64-bit systems normally, but let's alloc a page to be safe/lazy
         let size = 4096;
 
         let shm = match ShmSegment::open(&name, size) {
             Ok(s) => s,
             Err(_) => {
-                // Try create
                 let s = ShmSegment::create(&name, size)
                     .map_err(|e| PyRuntimeError::new_err(format!("Failed to create shm: {}", e)))?;
 
-                // Initialize mutex in the first bytes
                 unsafe {
                     RobustMutex::initialize_at(s.ptr.as_ptr()).map_err(|e| {
                         PyRuntimeError::new_err(format!("Failed into init mutex: {}", e))
@@ -136,7 +131,6 @@ impl ZooLock {
             }
         };
 
-        // Get reference
         let mutex = unsafe { RobustMutex::from_ptr(shm.ptr.as_ptr()) };
 
         Ok(ZooLock { _shm: shm, mutex })
